@@ -1,0 +1,38 @@
+TODO file for DateTime::Incomplete
+
+- more tests for next/previous with year and nanosecond
+
+- time_zone tests
+
+- locale implementation
+
+IDEAS
+
+* add_datetime
+
+Just like to_datetime, but adds the field values.
+
+* compare
+
+or is that simply not defined?
+
+* to_spanset
+
+* to_span
+
+* other C<DateTime> methods (strftime, locale ... )
+
+* set_week
+
+$dti->set( week => 10 )
+
+* from_datetime
+
+* to_recurrence( resolution => 'days' )
+
+Generates a recurrence of such 'density' (now it always defaults to seconds)
+
+* is_incomplete/is_complete
+
+How do we know it is complete?
+
