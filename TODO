@@ -2,13 +2,6 @@ TODO file for DateTime::Incomplete
 
 - truncate( to => 'week' )
 
-- some accessors could work _without_ a "base".
-- epoch() could be valid for "absolute" incomplete datetimes like:
-   2003
-   2003-06
-   2000-06-15
-   2000-06-15T10
-
 - test Storable hooks
 
     perl -Ilib -MStorable -MDateTime::Incomplete -MData::Dumper -e '$dt=DateTime->new(year=>1970);$dti=DateTime::Incomplete->new( year => 2003, base=>$dt, time_zone => "America/Chicago" );$freeze = Storable::nfreeze( $dti );print "$freeze\n"; '
@@ -28,7 +21,7 @@ TODO file for DateTime::Incomplete
 
 IDEAS
 
-* has_date / has_time
+* 'undef_char' could be configurable.
 
 * add_datetime
 
@@ -41,16 +34,6 @@ or is that simply not defined?
 * join( $dti )
 
 join the "defined" keys of two DT::Incomplete objects
-
-* keys or defined_fields
-
-returns a list of names of "defined" fields
-
-* to_spanset
-
-* to_span
-
-* other C<DateTime> methods (strftime, locale ... )
 
 * set_week
 

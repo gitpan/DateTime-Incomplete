@@ -8,7 +8,7 @@ WriteMakefile( NAME         => 'DateTime::Incomplete',
                ABSTRACT     => 'Incomplete DateTime objects',
 
                PREREQ_PM    => { 'DateTime' => 0,
-                                 'DateTime::Set' => 0.0901,
+                                 'DateTime::Set' => 0.1401,
 				 'DateTime::Event::Recurrence' => 0,
                                  'Test::More'  => 0,
                                },

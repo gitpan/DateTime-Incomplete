@@ -1,7 +1,29 @@
 Changes file for DateTime::Incomplete
 
+0.02  2004-09-21
+- fixed to_spanset(), bug reported by Joshua Hoblitt.
+
+0.0104  2003-11-10
+- to_spanset
+
+0.0103  2003-11-06
+- start, end, to_span
+- requires DateTime::Set 0.1401
+
+0.0102  2003-11-06
+- to_datetime() uses "today" as a base date, if none was given.
+  The following methods are affected by this change:
+  epoch, hires_epoch, is_dst, utc_rd_values, utc_rd_as_seconds, sprintf("%s")
+- can_be_datetime()
+- has_date(), has_time()
+- defined_fields() method, contributed by Rick Measham
+- to_datetime() sets fields in a known order,
+  instead of hash-order.  Based on a patch by Rick Measham
+- Included has() method, contributed by Rick Measham
+
 0.0101  2003-11-03
-- runs in Perl 5.00503
+- runs in Perl 5.00503.  
+  Dave Rolsky & Flavio S. Glock, creating a cvs conflict :)
 - there is no set_locale() in DateTime.   
   Modified from a patch by Rick Measham
 - fixed an infinite loop in _format_nanoseconds.   

@@ -13,7 +13,7 @@ BEGIN
 
 use strict;
 
-use Test::More tests => 124;
+use Test::More tests => 123;
 
 use DateTime::Incomplete;
 use DateTime;
@@ -154,7 +154,7 @@ year => undef
 %p	xx
 %r	xx:xx:xx xx
 %R	xx:xx
-%s	xxxxxx
+# %s	xxxxxx - epoch returns today()
 %S	xx
 %T	xx:xx:xx
 %U	xx

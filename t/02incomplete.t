@@ -2,9 +2,12 @@
 
 use strict;
 
-use Test::More tests => 36;
+use Test::More tests => 59;
 use DateTime;
 use DateTime::Incomplete;
+
+use constant INFINITY     =>       100 ** 100 ** 100 ;
+use constant NEG_INFINITY => -1 * (100 ** 100 ** 100);
 
 my $UNDEF_CHAR = 'x';
 my $UNDEF4 = $UNDEF_CHAR x 4;
@@ -127,6 +130,68 @@ my $UNDEF2 = $UNDEF_CHAR x 2;
     is( $dti->is_undef , 1,
         'is undef' );
 
+    # Tests can_be_datetime
+
+    {
+      is( $dti_complete->can_be_datetime, 1, 'can be datetime' );
+
+      my $dt = $dti_complete->clone;
+      $dt->set( year => undef );
+      is( $dt->can_be_datetime, 0, 'can not be datetime' );
+
+      $dt = $dti_complete->clone;
+      $dt->set( nanosecond => undef );
+      is( $dt->can_be_datetime, 1, 'can be datetime' );
+
+      $dt->set( second => undef );
+      is( $dt->can_be_datetime, 1, 'can be datetime' );
+
+      #is( $dt->to_datetime->datetime, '2003-01-01T00:00:00',
+      #    'be datetime' );
+
+      $dt->set( month => undef );
+      is( $dt->can_be_datetime, 0, 'can not be datetime' );
+
+      #is( $dt->to_datetime->datetime, '2003-01-01T00:00:00',
+      #    'force to be datetime' );
+
+      {
+        $dt->set( second => 30 );
+        my $dt_start = $dt->start;
+        is( $dt_start->datetime, '2003-01-01T00:00:30', 'start datetime' );
+        my $dt_end = $dt->end;
+        is( $dt_end->strftime( "%Y-%m-%dT%H:%M:%S.%N" ), 
+            '2003-12-01T00:00:31.000000000', 
+            'end datetime' );
+      }
+
+      {
+        $dt->set( second => undef );
+        is( $dt->start->datetime, '2003-01-01T00:00:00', 'start datetime' );
+        is( $dt->end->strftime( "%Y-%m-%dT%H:%M:%S.%N" ), 
+            '2003-12-01T00:01:00.000000000', 
+            'end datetime' );
+        is( "".$dt->to_span->{set}, 
+            '[2003-01-01T00:00:00..2003-12-01T00:01:00)', 
+            'span' );
+
+        $dt->set( nanosecond => 0 );
+        # $dt->set( second => 0 );
+        is( $dt->end->strftime( "%Y-%m-%dT%H:%M:%S.%N" ), 
+            '2003-12-01T00:00:59.000000000', 
+            'end datetime' );
+        is( "".$dt->to_span->{set}, 
+            '[2003-01-01T00:00:00..2003-12-01T00:00:59]', 
+            'span' );
+
+        $dt->set( year => undef );
+        is( "".$dt->to_span->{set}, 
+            '('. NEG_INFINITY . '..' . INFINITY . ')',
+            'span' );
+      }
+
+    }
+
     # TESTS TODO:
     # set_time_zone, time_zone
     #   -- together with contains() and to_datetime()
@@ -182,6 +247,12 @@ my $UNDEF2 = $UNDEF_CHAR x 2;
       $dti_no_day->set( day => 24 );         # xx-12-24T00:00:00
       $dti_no_day->set( minute => undef );   # xx-12-24T00:xx:00
 
+      # has
+      my @fields = $dti_no_day->defined_fields;
+      is( "@fields", "month day hour second nanosecond", "fields it has" );
+
+      is( $dti_no_day->has( 'year' ) , 0, 'has no year' );
+      is( $dti_no_day->has( 'month' ), 1, 'has month' );
 
       # to_recurrence
 
@@ -235,12 +306,53 @@ my $UNDEF2 = $UNDEF_CHAR x 2;
       is( $dti_no_day->closest( $dt )->datetime , '2002-12-24T00:59:00',
           'closest xmas '.$dt->datetime.'' );
 
+      {
+          # to_spanset
+
+          $set = $dti_no_day->to_spanset;
+
+          my $dt = DateTime->new( year => 2003 );
+
+          is( $set->next( $dt )->{set}."" , '[2003-12-24T00:00:00..2003-12-24T00:00:01)',
+              'next xmas - span recurrence' );
+
+          $dti_no_day->set( second => undef, minute => undef );
+          $set = $dti_no_day->to_spanset;
+
+          is( $set->next( $dt )->{set}."" , '[2003-12-24T00:00:00..2003-12-24T01:00:00)',
+              'next xmas - span recurrence' );
+
+          is( $dti_no_day->datetime."T". $dti_no_day->hms, 
+              "xxxx-12-24T00:xx:xxT00:xx:xx", 
+              "dti was not modified" );
+      }
+
   # End: Tests to_recurrence()
 
   };
 
 }
 
+{
+    my $dt = DateTime->new( year => 2003 );
+    my $dti = DateTime::Incomplete->new;
+
+    is( $dti->datetime."T". $dti->hms,
+        "xxxx-xx-xxTxx:xx:xxTxx:xx:xx",
+        "dti is not defined" );
+    my $span = $dti->to_span;
+    is( $span->{set}."" , '('.NEG_INFINITY.'..'.INFINITY.')',
+          'infinite span' );
+
+    my $set  = $dti->to_recurrence;
+    is( $set->next( $dt )->datetime , '2003-01-01T00:00:01',
+          'next "after" value' );
+
+    my $spanset = $dti->to_spanset;
+    is( $spanset->{set}."" , '('.NEG_INFINITY.'..'.INFINITY.')',
+          'single infinite span' );
+
+}
 
 1;
 

@@ -9,11 +9,11 @@ use Params::Validate qw( validate );
 use vars qw( $VERSION );
 
 my $UNDEF_CHAR;
-my ( @FIELDS, %FIELD_LENGTH, @TIME_FIELDS );
+my ( @FIELDS, %FIELD_LENGTH, @TIME_FIELDS, @FIELDS_SORTED );
 
 BEGIN
 {
-    $VERSION = '0.0101';
+    $VERSION = '0.02';
 
     $UNDEF_CHAR = 'x';
 
@@ -25,9 +25,13 @@ BEGIN
                 time_zone => 0, locale => 0 );
     @TIME_FIELDS = qw( hour minute second nanosecond );
 
+    @FIELDS_SORTED = qw( year month day 
+                hour minute second nanosecond 
+                time_zone locale );
+
     # Generate named accessors
 
-    for my $field ( keys %FIELD_LENGTH )
+    for my $field ( @FIELDS_SORTED )
     {
 	no strict 'refs';
 	*{$field} = sub { $_[0]->_get($field) };
@@ -282,6 +286,56 @@ sub _has
 {
     defined $_[0]->{has}{$_[1]} ? 1 : 0;
 }
+
+sub has {  
+    # returns true or false  
+    my $self = shift;  
+    foreach (@_) {  
+        return 0 unless $self->_has( $_ )  
+    }  
+    return 1  
+}  
+
+sub has_date {
+    $_[0]->has_year && $_[0]->has_month && $_[0]->has_day
+}
+
+sub has_time {
+    $_[0]->has_hour && $_[0]->has_minute && $_[0]->has_second
+}
+
+sub defined_fields {  
+    # no params, returns a list of fields  
+    my $self = shift;  
+    my @has = ();
+    for ( @FIELDS_SORTED )
+    {
+        push @has, $_ if $self->_has( $_ );
+    }
+    return @has;
+}  
+
+sub can_be_datetime {  
+    my $self = shift;  
+    return 0 if ! $self->has_year;
+    my $can = 1;
+    for ( qw( month day hour minute second nanosecond ) )
+    {
+        return 0 if ! $can && $self->_has( $_ );
+        $can = 0 if $can && ! $self->_has( $_ );
+    }
+    return 1;
+}  
+
+#sub become_datetime {
+#    my $self = shift;
+#    return undef unless $self->has_year;
+#    # warn "param = @{[  %{$self->{has}}  ]} ";
+#    # return DateTime->new( %{$self->{has}} );
+#    my @parm = map { ( $_, $self->$_() ) } $self->defined_fields;
+#    # warn "param = @parm";
+#    return DateTime->new( @parm );
+#}
 
 sub set_time_zone
 {
@@ -560,25 +614,28 @@ sub to_datetime
 {
     my $self = shift;
     my %param = @_;
-    return $self->{base}->clone if defined $self->{base} &&
+    $param{base} = $self->{base} if defined $self->{base} &&
                                   ! exists $param{base};
-    die "no base datetime" unless exists $param{base} && 
-                                  UNIVERSAL::can( $param{base}, 'utc_rd_values' );
-
-    my $result = $param{base}->clone;
+    my $result;
+    if ( defined $param{base} && 
+         UNIVERSAL::can( $param{base}, 'utc_rd_values' ) )
+    {
+        $result = $param{base}->clone;
+    }
+    else
+    {
+        $result = DateTime->today;
+    }
     my ($key, $value);
-    while (($key, $value) = each %{$self->{has}} ) {
+    for $key ( reverse @FIELDS_SORTED )
+    {
+        $value = $self->{has}{$key};
         next unless defined $value;
         if ( $key eq 'time_zone' )
         {
             $result->set_time_zone( $value );
             next;
         }        
-        # if ( $key eq 'locale' )
-        # {
-        #    $result->set_locale( $value );
-        #    next;
-        # }
         $result->set( $key => $value );
     }
     return $result;
@@ -747,6 +804,54 @@ sub closest
     return $dt2;
 }
 
+sub start
+{
+    my $self = shift;
+    return undef unless $self->has_year;
+    my $dt = $self->to_datetime;
+    $dt->subtract( years => 1 );
+    return $self->next( $dt );
+}
+
+sub end
+{
+    my $self = shift;
+    return undef unless $self->has_year;
+    my $dt = $self->to_datetime;
+    $dt->add( years => 1 );
+    my $end = $self->previous( $dt );
+    $end->add( nanoseconds => 1 ) unless $self->has_nanosecond;
+    return $end;
+}
+
+sub to_span
+{
+    my $self = shift;
+    my $start = $self->start;
+    my $end = $self->end;
+
+    return DateTime::Set->empty_set->complement->span
+        if ! $start && ! $end;
+
+    my @start;
+    @start = ( 'start', $start ) if $start;
+
+    my @end;
+    if ( $end )
+    {
+        if ( $self->has_nanosecond )
+        {
+            @end = ( 'end', $end ); 
+        }
+        else
+        {
+            @end = ( 'before', $end ); 
+        }
+    }
+
+    return DateTime::Span->from_datetimes( @start, @end );
+}
+
 sub to_recurrence
 {
     my $self = shift;
@@ -794,6 +899,28 @@ sub to_recurrence
     return $r;
 }
 
+sub to_spanset
+{
+    my $self = shift;
+    my @reset;
+    for ( qw( second minute hour day month year ) )
+    {
+        if ( $self->has( $_ ) )
+        {
+            my %fields = @FIELDS;
+            @reset = map { $_ => $fields{$_} } @reset;
+            my $dti = $self->clone;
+            $dti->set( @reset ) if @reset;
+
+            return DateTime::SpanSet->from_set_and_duration (
+                set => $dti->to_recurrence,
+                $_ . 's' => 1,
+            );
+        }
+        push @reset, $_;
+    }
+    return $self->to_span;
+}
 
 sub STORABLE_freeze
 {
@@ -1012,8 +1139,32 @@ available in C<DateTime.pm>, such as C<mon()>, C<mday()>, etc.
 
 =item * has_locale
 
+=item * has_date
+
+=item * has_time
+
 Returns a boolean value indicating whether the corresponding value is
 defined.
+
+C<has_date> tests for year, month, and day.
+
+C<has_time> tests for hour, minute, and second.
+
+=item * has
+
+    $has_date = $dti->has( 'year', 'month', 'day' );
+
+Returns a boolean value indicating whether all fields in the argument list are defined.
+
+=item * defined_fields
+
+    @fields = $dti->defined_fields;   # list of field names
+
+Returns a list containing the names of the fields that are defined.
+
+The list is ordered by: year, month, day, 
+hour, minute, second, nanosecond, 
+time_zone, locale.
 
 =item * datetime, ymd, date, hms, time, iso8601, mdy, dmy
 
@@ -1034,9 +1185,12 @@ as appropriate.
     my $epoch = $dti->epoch( base => $dt );
 
 These methods are equivalent to the C<DateTime> methods with the same
-name, but they will return C<undef> if no base datetime is defined.
+name.
+
 They all accept a "base" argument to use in order to calculate the
 method's return values.
+
+If no "base" argument is given, then C<today> is used.
 
 =item * is_finite, is_infinite
 
@@ -1053,8 +1207,8 @@ documentation for a list of all possible format specifiers.
 
 Undefined fields are replaced by 'xx' or 'xxxx' as appropriate.
 
-The specification C<%s> (epoch) returns C<xxxxxx>, unless the object
-has a base datetime set.
+The specification C<%s> (epoch) is calculated using C<today> as the base date,
+unless the object has a base datetime set.
 
 =back
 
@@ -1158,6 +1312,35 @@ base datetime set.
 
 Returns true if the datetime is completely undefined.
 
+=item * can_be_datetime
+
+Returns true if the datetime has enough information to be converted to
+a proper DateTime object.
+
+The year field must be valid, followed by a sequence of valid fields.
+
+Examples:
+
+  Can be datetime:
+  2003-xx-xxTxx:xx:xx
+  2003-10-xxTxx:xx:xx  
+  2003-10-13Txx:xx:xx 
+
+  Can not be datetime:
+  2003-10-13Txx:xx:30
+  xxxx-10-13Txx:xx:30 
+
+=cut
+
+#=item * become_datetime
+#
+#Returns a C<DateTime> object.
+#
+#Returns C<undef> if the year value is not set.
+#
+#This method may C<die> if the parameters are not valid 
+#in the call to  C<DateTime->new>. 
+
 =item * set_base
 
 Sets the base datetime object for the C<DateTime::Incomplete> object.
@@ -1178,11 +1361,16 @@ This method takes an optional "base" parameter and returns a
 The resulting datetime can be either before of after the given base
 datetime. No adjustments are made, besides setting the missing fields.
 
-This method will die if the object has no base datetime set and none
+This method will use C<today> if the object has no base datetime set and none
 is given as an argument.
 
-This method may also die if it results in a datetime that doesn't
+This method may die if it results in a datetime that doesn't
 actually exist, such as February 30, for example.
+
+The fields in the resulting datetime are set in this order:
+locale, time_zone, 
+nanosecond, second, minute, hour, 
+day, month, year. 
 
 =item * to_recurrence
 
@@ -1207,6 +1395,35 @@ following incomplete datetime would generate the set of I<all seconds>
 in 2003:
 
   2003-xx-xxTxx:xx:xx
+
+Recurrences are generated with up to 1 second resolution. 
+The C<nanosecond> value is ignored.
+
+=item * to_spanset
+
+This method generates the set of all possible spans that fit into
+an incomplete datetime definition.
+
+  $dti = DateTime::Incomplete->new( month => 12, day => 24 );
+  $dtset1 = $dti->to_spanset;
+  # Christmas recurrence, from xxxx-12-24T00:00:00 
+  #                         to xxxx-12-25T00:00:00
+
+=item * start
+
+=item * end
+
+=item * to_span
+
+These methods view an incomplete datetime as a "time span".
+
+For example, the incomplete datetime C<2003-xx-xxTxx:xx:xx> starts
+in C<2003-01-01T00:00:00> and ends in C<2004-01-01T00:00:00>.
+
+The C<to_span> method returns a C<DateTime::Span> object.
+
+An incomplete datetime without an year spans "forever". 
+Start and end datetimes are C<undef>.
 
 =item * contains
 
@@ -1259,6 +1476,7 @@ Ben Bennett <fiji[at]ayup.limey.net>,
 Claus Farber <claus[at]xn--frber-gra.muc.de>,
 Dave Rolsky <autarch[at]urth.org>,
 Eugene Van Der Pijll <pijll[at]gmx.net>,
+Rick Measham <rick[at]isite.net.au>,
 and the DateTime team.
 
 =head1 COPYRIGHT
