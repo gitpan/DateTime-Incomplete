@@ -1,18 +1,18 @@
 package DateTime::Incomplete;
 
 use strict;
-use vars qw($VERSION);
+use Params::Validate qw( validate SCALAR BOOLEAN HASHREF OBJECT );
 
+use vars qw( $VERSION );
 use vars qw( $UNDEF_CHAR $UNDEF2 $UNDEF4 );
 use vars qw( $CAN_RECURRENCE $RECURRENCE_MODULE );
+use vars qw( @FIELDS %FIELD_LENGTH );
 
 BEGIN
 {
-    $VERSION = '0.00_04';
+    $VERSION = '0.00_05';
 
     $UNDEF_CHAR = 'x';
-    $UNDEF4 = $UNDEF_CHAR x 4;   # xxxx
-    $UNDEF2 = $UNDEF_CHAR x 2;   # xx
 
     # to_recurrence() method requires a recurrence module.
     # otherwise, it is not required.
@@ -22,6 +22,36 @@ BEGIN
         use $RECURRENCE_MODULE;
         \$CAN_RECURRENCE = 1;
     ";
+
+    @FIELDS = ( year => 0, month => 1, day => 1, 
+                hour => 0, minute => 0, second => 0, nanosecond => 0 );
+    %FIELD_LENGTH = ( 
+                year => 4, month => 2, day => 2, 
+                hour => 2, minute => 2, second => 2, nanosecond => 9,
+                time_zone => 3, locale => 3 );
+
+    for ( keys %FIELD_LENGTH )
+    {
+      eval " 
+
+        # year() - plain value
+        sub $_ { 
+            \$_[0]->get( '$_' ) 
+        }
+
+        # has_year() - boolean
+        sub has_$_ { 
+            \$_[0]->has( '$_' ) 
+        }   
+
+        # _year() - stringification
+        sub _$_  { 
+            defined \$_[0]->$_ ? 
+            sprintf( \"%0.$FIELD_LENGTH{$_}d\", \$_[0]->$_ ) : 
+            \$UNDEF_CHAR x $FIELD_LENGTH{$_} 
+        } 
+      ";
+    }
 }
 
 # DATETIME-LIKE METHODS
@@ -32,21 +62,13 @@ sub new
     # parameter checking is done in "set" method.
     my $class = shift;
     my %param = @_;
-
-    # There is no point in accepting 'language', because there is no
-    # set_language() method in DateTime (yet)
-    die "Parameter 'language' is not supported" if exists $param{language};
-
     my $base = delete $param{base};
     die "base must be a datetime" if defined $base && 
                              ! UNIVERSAL::can( $base, 'utc_rd_values' );
-
     my $self = bless { 
         has => \%param,
     }, $class;
-
     $self->set_base( $base );
-
     return $self;
 }
 
@@ -79,7 +101,8 @@ sub set
 {
     # parameter checking is done in "base" class.
     die "set() requires a field name and a value" unless $#_ == 2;
-    $_[0]->{base}->set( $_[1] => $_[2] ) if defined $_[0]->{base};
+    $_[0]->{base}->set( $_[1] => $_[2] ) 
+        if defined $_[2] && defined $_[0]->{base};
     $_[0]->{has}{ $_[1] } = $_[2];
 }
 
@@ -95,9 +118,16 @@ sub has
 
 sub set_time_zone
 {
-    die "set() requires a time_zone value" unless $#_ == 1;
+    die "set_time_zone() requires a time_zone value" unless $#_ == 1;
     $_[0]->{base}->set_time_zone( $_[1] ) if defined $_[0]->{base};
     $_[0]->{has}{time_zone} = $_[1];
+}
+
+sub set_locale
+{
+    die "set_locale() requires a locale value" unless $#_ == 1;
+    $_[0]->{base}->set_locale( $_[1] ) if defined $_[0]->{base};
+    $_[0]->{has}{locale} = $_[1];
 }
 
 sub clone 
@@ -115,23 +145,33 @@ sub is_finite { 1 }
 sub is_infinite { 0 }
 
 
-for ( qw/ year month day hour minute second nanosecond time_zone / )
+sub truncate
 {
-    eval " sub $_ { \$_[0]->get( '$_' ) } ";      # year()
-    eval " sub has_$_ { \$_[0]->has( '$_' ) } ";  # has_year()
+    my $self = shift;
+    my %p = validate( @_,
+                      { to =>
+                        { regex => qr/^(?:year|month|day|hour|minute|second)$/ },
+                      },
+                    );
+
+    my @fields = @FIELDS;
+    my $field;
+    my $value;
+    my $set = 0;
+    while ( @fields )
+    {
+        ( $field, $value ) = ( shift @fields, shift @fields );
+        $self->set( $field => $value ) if $set;
+        $set = 1 if $p{to} eq $field;
+    }
+    return $self;
 }
 
-
-# Internal stringification methods.
-# some of these methods are not used, but they are defined just in case.
-# TODO: generate these subs using a hash
-sub _year       { defined $_[0]->year   ? sprintf( "%0.4d", $_[0]->year )   : $UNDEF4 }
-sub _month      { defined $_[0]->month  ? sprintf( "%0.2d", $_[0]->month )  : $UNDEF2 }
-sub _day        { defined $_[0]->day    ? sprintf( "%0.2d", $_[0]->day )    : $UNDEF2 }
-sub _hour       { defined $_[0]->hour   ? sprintf( "%0.2d", $_[0]->hour )   : $UNDEF2 }
-sub _minute     { defined $_[0]->minute ? sprintf( "%0.2d", $_[0]->minute ) : $UNDEF2 }
-sub _second     { defined $_[0]->second ? sprintf( "%0.2d", $_[0]->second ) : $UNDEF2 }
-sub _nanosecond { defined $_[0]->nanosecond ? sprintf( "%0.9d", $_[0]->nanosecond ) : $UNDEF_CHAR x 9 }
+*mon = \&month;
+*day_of_month = \&day;
+*mday = \&day;
+*min = \&minute;
+*sec = \&second;
 
 sub ymd
 {
@@ -195,6 +235,11 @@ sub to_datetime
             $result->set_time_zone( $value );
             next;
         }        
+        if ( $key eq 'locale' )
+        {
+            $result->set_locale( $value );
+            next;
+        }
         $result->set( $key => $value );
     }
     return $result;
@@ -211,16 +256,16 @@ sub contains
     my ($key, $value);
     while (($key, $value) = each %{$self->{has}} ) {
         next unless defined $value;
-        if ( $key eq 'time_zone' )
+        if ( $key eq 'time_zone' ||
+             $key eq 'locale' )
         {
-            # TODO! - time_zone is ignored.
+            # TODO! - time_zone and locale are ignored.
             next;
         }        
         return 0 unless $dt->$key == $value;
     }
     return 1;
 }
-
 
 sub next
 {
@@ -235,103 +280,50 @@ sub next
 
     my $result = $base->clone;
 
-    # warn "self ".$self->datetime." base ".$result->datetime;
-
-    if ( defined $self->year )
+    REDO: for (1..10) 
     {
-        return undef if $self->year < $result->year;
-        if ( $self->year > $result->year )
-        {
-            # first date in year
-            $result->set( year => $self->year, month => 1, day => 1, hour => 0, 
-                          minute => 0, second => 0, nanosecond => 0 );
-        }
-    }
-    if ( defined $self->month )
-    {
-        if ( $self->month < $result->month )
-        {
-            $result->set( month => $self->month );
-            $result->add( years => 1 );
-            return $self->next( $result );
-        }
-        if ( $self->month > $result->month )
-        {
-            $result->set( month => $self->month, day => 1, hour => 0, minute => 0, 
-                          second => 0, nanosecond => 0 );
-        }
-    }
-    if ( defined $self->day )
-    {
-        if ( $self->day < $result->day )
-        {
-            $result->set( day => $self->day );
-            $result->add( months => 1 ); 
-            return $self->next( $result );
-        }
-        if ( $self->day > $result->day )
-        {
-            $result->set( day => $self->day, hour => 0, minute => 0, second => 0, 
-                          nanosecond => 0 );
-        }
-    }
+        # warn "next: self ".$self->datetime." base ".$result->datetime;
 
-    if ( defined $self->hour )
-    {
-        if ( $self->hour < $result->hour )
+        my @fields = @FIELDS;
+        my ( $field, $overflow, $bigger_field );
+        while ( @fields ) 
         {
-            $result->set( hour => $self->hour );
-            $result->add( days => 1 ); 
-            return $self->next( $result );
+            ( $field, undef ) = ( shift @fields, shift @fields );
+            if ( defined $self->$field )
+            {
+                $overflow = ( $self->$field < $result->$field );
+                return undef if $overflow && $field eq $FIELDS[0];
+
+                if ( $self->$field != $result->$field )
+                {
+                    eval { $result->set( $field => $self->$field ) };
+                    if ( $@ ) 
+                    {
+                        $result->set( @fields );
+                        eval { $result->set( $field => $self->$field ) };
+                        if ( $@ )
+                        {
+                            $overflow = 1;
+                        }
+                    }
+
+                    if ( $overflow ) 
+                    {
+                        $result->add( $bigger_field . 's' => 1 );
+                        next REDO; 
+                    }
+                    else
+                    {
+                        $result->set( @fields );
+                    }
+                }
+            }
+            $bigger_field = $field;
         }
-        if ( $self->hour > $result->hour )
-        {
-            $result->set( hour => $self->hour, minute => 0, second => 0, nanosecond => 0 );
-        }
+        return $result;
     }
-
-    if ( defined $self->minute )
-    {
-        if ( $self->minute < $result->minute )
-        {
-            $result->set( minute => $self->minute );
-            $result->add( hours => 1 ); 
-            return $self->next( $result );
-        }
-        if ( $self->minute > $result->minute )
-        {
-            $result->set( minute => $self->minute, second => 0, nanosecond => 0 );
-        }
-    }
-
-    if ( defined $self->second )
-    {
-        if ( $self->second < $result->second )
-        {
-            $result->set( second => $self->second );
-            $result->add( minutes => 1 ); 
-            return $self->next( $result );
-        }
-        if ( $self->second > $result->second )
-        {
-            $result->set( second => $self->second, nanosecond => 0 );
-        }
-    }
-
-    if ( defined $self->nanosecond )
-    {
-        if ( $self->nanosecond < $result->nanosecond )
-        {
-            $result->set( nanosecond => $self->nanosecond );
-            $result->add( seconds => 1 ); 
-            return $self->next( $result );
-        }
-    }
-
-    return $result;
-
+    return undef;
 }
-
 
 sub previous
 {
@@ -348,30 +340,44 @@ sub previous
 
     # warn "previous: self ".$self->datetime." base ".$result->datetime;
 
-    my @fields = ( year => 0, month => 1, day => 1, hour => 0,
-                   minute => 0, second => 0, nanosecond => 0 );
-    my ( $field, $overflow, $bigger_field );
-    while ( @fields ) 
-    {
-        ( $field, undef ) = ( shift @fields, shift @fields );
-        if ( defined $self->$field )
-        {
-            $overflow = ( $self->$field > $result->$field );
-            return undef if $overflow && $field eq 'year';
+    my ( $field, $value, $overflow, $bigger_field );
 
-            if ( $self->$field != $result->$field )
+    REDO: for (1..10)
+    {
+        my @fields = @FIELDS;
+        while ( @fields ) 
+        {
+            ( $field, $value ) = ( shift @fields, shift @fields );
+            if ( defined $self->$field )
             {
-                $result->set( $field => $self->$field );
-                $result->subtract( $bigger_field . 's' => 1 ) if $overflow;
-                $result->add( $field . 's' => 1 );
-                $result->set( @fields );
-                $result->subtract( nanoseconds => 1 );
-                return $self->previous( $result ) if $overflow;
+                $overflow = ( $self->$field > $result->$field );
+                return undef if $overflow && $field eq $FIELDS[0];
+
+                if ( $self->$field != $result->$field )
+                {
+                    if ( $overflow )
+                    {
+                        $result->set( $field => $value, @fields );
+                        $result->subtract( nanoseconds => 1 );
+                        next REDO;
+                    }
+                    my $diff = $result->$field - $self->$field ;
+                    $diff--;
+                    $result->subtract( $field  . 's' => $diff );
+                    $result->set( @fields );
+                    $result->subtract( nanoseconds => 1 );
+                    if ( $result->$field != $self->$field )
+                    {
+                        $result->set( @fields );
+                        $result->subtract( nanoseconds => 1 );
+                    } 
+                }
             }
+            $bigger_field = $field;
         }
-        $bigger_field = $field;
+        return $result;
     }
-    return $result;
+    return undef;
 }
 
 sub closest
@@ -387,6 +393,9 @@ sub closest
 
     my $dt1 = $self->previous( $base );
     my $dt2 = $self->next( $base );
+
+    return $dt1 unless defined $dt2;
+    return $dt2 unless defined $dt1;
 
     # warn "self ".$self->datetime." base ".$base->datetime;
     # warn "dt1 ".$dt1->datetime." dt2 ".$dt2->datetime;
@@ -489,14 +498,13 @@ Creates a new incomplete date:
 This class method accepts parameters for each date and
 time component: "year", "month", "day", "hour",
 "minute", "second", "nanosecond".  Additionally, it
-accepts a "time_zone" parameter and a "base" parameter.
+accepts a "time_zone", a "locale" parameter,
+and a "base" parameter.
 
 The "base" parameter is used as a default base datetime 
 in the "to_datetime" method. It is also used for validating
 inputs to the "set" method. 
 There is no default "base".
-
-Note: There is no "language" or "locale" parameter.
 
 C<new> without parameters creates a completely undefined datetime:
 
@@ -535,8 +543,10 @@ no local time adjust is made.
 
 Return the field value, or C<undef>.
 
+These values can also be accessed using the methods:
+mon, day_of_month, mday, min, sec.
 
-=item * has_year, has_month, has_day, has_hour, has_minute, has_second, has_nanosecond
+=item * has_year, has_month, has_day, has_hour, has_minute, has_second, has_nanosecond, has_time_zone, has_locale
 
 Returns 1 if the value is defined; otherwise it returns 0.
 
@@ -544,6 +554,11 @@ Returns 1 if the value is defined; otherwise it returns 0.
 =item * time_zone
 
 This returns the C<DateTime::TimeZone> object for the datetime object,
+or C<undef>.
+
+=item * locale
+
+This returns the C<DateTime::Locale> object for the datetime object,
 or C<undef>.
 
 =item * datetime, ymd, date, hms, time, iso8601, mdy, dmy
@@ -560,26 +575,23 @@ L<DateTime::Infinite|DateTime::Infinite>.
 
 Incomplete dates are not "Infinite".
 
+
+=item * truncate( to => ... )
+
+This method allows you to define some of the components in
+the object to their "zero" values.  The "to" parameter is used to
+specify which values to truncate, and it may be one of "year",
+"month", "day", "hour", "minute", or "second".  For example, if
+"month" is specified, then the day becomes 1, and the hour,
+minute, and second all become 0.
+
+
 =back
 
 
 =head1 "DATETIME::INCOMPLETE" METHODS
 
 =over 4
-
-=item * get
-
-  $kin = $dti->get( 'kin' );  # a Mayan time
-
-Return the datetime field value, or C<undef>.
-
-
-=item * has
-
-  $isfrac = $dti->has( 'nanosecond' ); 
-
-Returns 1 if the datetime field value is defined; otherwise it returns 0.
-
 
 =item * set_base
 
@@ -589,6 +601,9 @@ The "base" parameter is used as a default base datetime
 in the "to_datetime" method. It is also used for validating
 inputs to the "set" method.
 
+The base object must use the year/month/day system. 
+Most calendars use this system: Gregorian (C<DateTime>),
+Julian, and others.
 
 =item * base
 
@@ -688,7 +703,32 @@ Note: The definition of C<previous> and C<next> is different from the
 methods in C<DateTime::Set> class.
 
 The datetimes are generated with 1 nanosecond precision. The last "time"
-value of a given day is 23:59:59.999999999 (non leapsecond days).
+value of a given day is 23:59:59.999999999 (for non leapsecond days).
+
+=cut
+
+# (FIXED)
+# Implementation note:
+# These methods are known to fail in certain cases. For example, if you had
+# a DateTime::Infinite date defined with C<month => 2> 
+# and you ask for the previous date before 'march-31'.
+
+=item * get
+
+  $month = $dti->get( 'month' ); 
+
+Returns the datetime field value, or C<undef>. 
+
+You may want to use C<get_month> instead.
+
+
+=item * has
+
+  $isfrac = $dti->has( 'nanosecond' ); 
+
+Returns 1 if the datetime field value is defined; otherwise it returns 0. 
+You may want to use C<has_nanosecond> instead.
+
 
 =back
 
@@ -705,14 +745,12 @@ These methods are not implemented in C<DateTime::Incomplete>
   from_day_of_year
   ce_year, era, year_with_era
   month_name, month_abbr
-  day_of_month, mday
   day_of_week, wday, dow
   day_name, day_abbr
   day_of_year, doy
   quarter, day_of_quarter, doq
   weekday_of_month
   hour_1, hour_12, hour_12_0
-  min, sec
   fractional_second, millisecond, microsecond
   is_leap_year
   week, week_year, week_number, week_of_month
@@ -720,7 +758,6 @@ These methods are not implemented in C<DateTime::Incomplete>
   offset, is_dst, time_zone_short_name
   strftime
   utc_rd_values, utc_rd_as_seconds, local_rd_as_seconds
-  truncate
   add_duration, add, subtract_duration, subtract, subtract_datetime
 
 There are no class methods. The following are not implemented:
@@ -729,8 +766,6 @@ There are no class methods. The following are not implemented:
   compare, compare_ignore_floating
 
 There are no "Storable" class hooks.
-
-The C<new> method doesn't have the 'language' parameter.
 
 
 =head1 AUTHORS

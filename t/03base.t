@@ -2,7 +2,7 @@
 
 use strict;
 
-use Test::More tests => 37;
+use Test::More tests => 35;
 use DateTime;
 use DateTime::Incomplete;
 
@@ -13,6 +13,8 @@ $UNDEF2 = $UNDEF_CHAR x 2;
 
 {
     # Tests for new(), set(), datetime()
+
+    my $base = DateTime->new( year => 1970 );
 
     my $dti;
     my $dt = DateTime->new( year => 2003 );
@@ -31,6 +33,7 @@ $UNDEF2 = $UNDEF_CHAR x 2;
         minute => $dt->minute,
         second => $dt->second,
         nanosecond => $dt->nanosecond,
+        base =>   $base,
     );
     $dti_complete = $dti->clone;  # a fully-defined datetime
     $str_complete = $dti->datetime;
@@ -141,7 +144,7 @@ $UNDEF2 = $UNDEF_CHAR x 2;
 
   SKIP: 
   {
-    skip $DateTime::Incomplete::RECURRENCE_MODULE . " is not installed", 18
+    skip $DateTime::Incomplete::RECURRENCE_MODULE . " is not installed", 16
          unless $DateTime::Incomplete::CAN_RECURRENCE;
 
     my $set;
@@ -161,26 +164,6 @@ $UNDEF2 = $UNDEF_CHAR x 2;
         'first day in 2003-01' );
     is( $set->max->datetime , '2003-01-31T00:00:00',
         'last day in 2003-01' );
-
-
-    SKIP: {
-        skip "This is not an error - this test would take too much resources to complete", 2
-             if 1;
-
-        # no day, no minute
-
-        # Note: this test takes a lot of time to complete, because
-        # the _finite_ set is quite big (31 * 60 datetimes)
-
-        $dti_no_day->set( minute => undef );   # 2003-01-xxT00:xx:00
-        $set = $dti_no_day->to_recurrence;
-        is( $set->min->datetime , '2003-01-01T00:00:00',
-            'first day/minute in 2003-01' );
-        is( $set->max->datetime , '2003-01-31T00:59:00',
-            'last day/minute in 2003-01' );
-
-    };
-
 
     # no year, no day, no minute
 

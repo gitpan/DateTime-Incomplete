@@ -1,22 +1,31 @@
 Changes file for DateTime::Incomplete
 
+0.00_05  2003-07-24
+- next/previous "february" problem fixed.
+- set( day => undef ) would break if there was a base date.
+  Reported by Dave Rolsky
+- t/02incomplete.t SKIPs tests properly, when DT::Recurrence
+  is not installed
+- locale, set_locale
+- some aliases added, for DateTime compatibility
+
 0.00_04  2003-07-22
-   base
-   next / previous / closest
-   has_hour, has_month, ...
-   has(), get()
+-  base
+-  next / previous / closest
+-  has_hour, has_month, ...
+-  has(), get()
 
 0.00_03  2003-07-21
-   New API: new( ..., base => $dt )
+-  New API: new( ..., base => $dt )
             set_base( $dt )
             to_datetime() without base
-   Implemented to_recurrence
-   Implemented is_undef, to_datetime, contains
-   All methods in DATETIME-LIKE section are implemented. Most are tested.
+-  Implemented to_recurrence
+-  Implemented is_undef, to_datetime, contains
+-  All methods in DATETIME-LIKE section are implemented. Most are tested.
 
 0.00_02  2003-07-19
-   POD, makefile and CVS upload.
+-  POD, makefile and CVS upload.
 
 0.00_01  2003-07-17
-   02incomplete.t created.
+-  02incomplete.t created.
 
