@@ -1,5 +1,12 @@
 Changes file for DateTime::Incomplete
 
+0.0101  2003-11-03
+- runs in Perl 5.00503
+- there is no set_locale() in DateTime.   
+  Modified from a patch by Rick Measham
+- fixed an infinite loop in _format_nanoseconds.   
+  Patch by Rick Measham
+
 0.01  2003-11-01
 - documentation revision, by Dave Rolsky
 - documented the error handling: mutators die / accesors return undef

@@ -13,7 +13,7 @@ my ( @FIELDS, %FIELD_LENGTH, @TIME_FIELDS );
 
 BEGIN
 {
-    $VERSION = '0.01';
+    $VERSION = '0.0101';
 
     $UNDEF_CHAR = 'x';
 
@@ -52,7 +52,6 @@ BEGIN
         is_dst
         utc_rd_values
         utc_rd_as_seconds
-        local_rd_as_seconds
         / )
     {
         no strict 'refs';
@@ -136,10 +135,10 @@ sub _datetime_method
 
     $param{locale} = $self->locale if $self->has_locale;
     $param{time_zone} = $self->time_zone if $self->has_time_zone;
-    $param{$_} = $self->$_ for @fields;
+    $param{$_} = $self->$_() for @fields;
     $date = DateTime->new( %param );
     
-    return $date->$method;
+    return $date->$method();
 }
 
 # DATETIME-LIKE METHODS
@@ -163,7 +162,7 @@ sub _from_datetime
     my $class = shift;
     my $dt = shift;
     my %param;
-    $param{$_} = $dt->$_ for ( keys %FIELD_LENGTH );
+    $param{$_} = $dt->$_() for ( keys %FIELD_LENGTH );
     return $class->new( %param );
 }
 
@@ -204,7 +203,7 @@ sub today
     my %param;
     my %fields = ( %FIELD_LENGTH );
     delete $fields{$_} for ( qw/ hour minute second nanosecond / );
-    $param{$_} = $now->$_ for ( keys %fields );
+    $param{$_} = $now->$_() for ( keys %fields );
     return $class->new( %param );
 }
 
@@ -220,7 +219,7 @@ sub new
         has => \%param,
     }, $class;
     $self->set_base( $base );
-    $self->set_locale( $self->{has}{locale} ) if $self->{has}{locale};
+    $self->set( locale => $self->{has}{locale} ) if $self->{has}{locale};
     $self->set_time_zone( $self->{has}{time_zone} ) if $self->{has}{time_zone};
     return $self;
 }
@@ -264,7 +263,7 @@ sub set
     {
 	if ( $k eq 'locale' )
 	{
-	    $self->set_locale($v);
+	    $self->_set_locale($v);
             next;
 	}
 
@@ -296,7 +295,7 @@ sub set_time_zone
     $_[0]->{has}{time_zone} = $time_zone;
 }
 
-sub set_locale
+sub _set_locale
 {
     die "set_locale() requires a locale value" unless $#_ == 1;
     my $locale = $_[1];
@@ -304,7 +303,7 @@ sub set_locale
     {
         $locale = DateTime::Locale->load( $locale ) unless ref $locale;
         $_[0]->{base}->set( locale => $locale ) if defined $_[0]->{base};
-    }
+    } 
     $_[0]->{has}{locale} = $locale;
 }
 
@@ -492,7 +491,7 @@ sub _format_nanosecs
     return $UNDEF_CHAR x $precision unless defined $self->nanosecond;
 
     # rd_nanosecs can have a fractional separator
-    my ( $ret, $frac ) = split /[.,]/, $self->_nanosecond;
+    my ( $ret, $frac ) = split /[.,]/, $self->nanosecond;
     $ret = sprintf "09d" => $ret;  # unless length( $ret ) == 9;
     $ret .= $frac if $frac;
 
@@ -575,11 +574,11 @@ sub to_datetime
             $result->set_time_zone( $value );
             next;
         }        
-        if ( $key eq 'locale' )
-        {
-            $result->set_locale( $value );
-            next;
-        }
+        # if ( $key eq 'locale' )
+        # {
+        #    $result->set_locale( $value );
+        #    next;
+        # }
         $result->set( $key => $value );
     }
     return $result;
@@ -608,7 +607,7 @@ sub contains
             # time_zone and locale are ignored.
             next;
         }        
-        return 0 unless $dt->$key == $value;
+        return 0 unless $dt->$key() == $value;
     }
     return 1;
 }
@@ -635,18 +634,18 @@ sub next
         while ( @fields ) 
         {
             ( $field, undef ) = ( shift @fields, shift @fields );
-            if ( defined $self->$field )
+            if ( defined $self->$field() )
             {
-                $overflow = ( $self->$field < $result->$field );
+                $overflow = ( $self->$field() < $result->$field() );
                 return undef if $overflow && $field eq $FIELDS[0];
 
-                if ( $self->$field != $result->$field )
+                if ( $self->$field() != $result->$field() )
                 {
-                    eval { $result->set( $field => $self->$field ) };
+                    eval { $result->set( $field => $self->$field() ) }; 
                     if ( $@ ) 
                     {
                         $result->set( @fields );
-                        eval { $result->set( $field => $self->$field ) };
+                        eval { $result->set( $field => $self->$field() ) };
                         if ( $@ )
                         {
                             $overflow = 1;
@@ -694,12 +693,12 @@ sub previous
         while ( @fields ) 
         {
             ( $field, $value ) = ( shift @fields, shift @fields );
-            if ( defined $self->$field )
+            if ( defined $self->$field() )
             {
-                $overflow = ( $self->$field > $result->$field );
+                $overflow = ( $self->$field() > $result->$field() );
                 return undef if $overflow && $field eq $FIELDS[0];
 
-                if ( $self->$field != $result->$field )
+                if ( $self->$field() != $result->$field() )
                 {
                     if ( $overflow )
                     {
@@ -707,12 +706,12 @@ sub previous
                         $result->subtract( nanoseconds => 1 );
                         next REDO;
                     }
-                    my $diff = $result->$field - $self->$field ;
+                    my $diff = $result->$field() - $self->$field() ;
                     $diff--;
                     $result->subtract( $field  . 's' => $diff );
                     $result->set( @fields );
                     $result->subtract( nanoseconds => 1 );
-                    if ( $result->$field != $self->$field )
+                    if ( $result->$field() != $self->$field() )
                     {
                         $result->set( @fields );
                         $result->subtract( nanoseconds => 1 );
@@ -762,10 +761,10 @@ sub to_recurrence
         {
             if ( $_ eq 'year' ) 
             {
-                $year = $self->$_;
+                $year = $self->$_();
                 next;
             }
-            $param{$by} = [ $self->$_ ];
+            $param{$by} = [ $self->$_() ];
             next;
         }
         $freq = $_ unless $freq;
@@ -878,6 +877,11 @@ A C<DateTime::Incomplete> object can have a "base" C<DateTime.pm>
 object.  This object is used as a default datetime in the
 C<to_datetime()> method, and it also used to validate inputs to the
 C<set()>.
+
+The base object must use the year/month/day system.  Most calendars
+use this system: Gregorian (C<DateTime>), Julian, and others.  Note
+that this module has not been well tested with base objects outside of
+the C<DateTime.pm> class.
 
 By default, newly created C<DateTime::Incomplete> objects have no
 base.
@@ -1015,7 +1019,7 @@ defined.
 
 These are equivalent to DateTime stringification methods with the same
 name, except that the undefined fields are replaced by 'xx' or 'xxxx'
-as necessary.
+as appropriate.
 
 =item * epoch
 
@@ -1027,12 +1031,12 @@ as necessary.
 
 =item * utc_rd_as_seconds
 
-=item * local_rd_as_seconds
-
     my $epoch = $dti->epoch( base => $dt );
 
 These methods are equivalent to the C<DateTime> methods with the same
 name, but they will return C<undef> if no base datetime is defined.
+They all accept a "base" argument to use in order to calculate the
+method's return values.
 
 =item * is_finite, is_infinite
 
@@ -1044,8 +1048,8 @@ This method implements functionality similar to the C<strftime()>
 method in C.  However, if given multiple format strings, then it will
 return multiple scalars, one for each format string.
 
-See the C<strftime Specifiers> section in C<DateTime.pm> documentation
-for a list of all possible format specifiers.
+See the "strftime Specifiers" section in the C<DateTime.pm>
+documentation for a list of all possible format specifiers.
 
 Undefined fields are replaced by 'xx' or 'xxxx' as appropriate.
 
@@ -1107,7 +1111,7 @@ Use this to set or undefine a datetime field:
   $dti->set( day => 24 );
   $dti->set( day => undef );
 
-This method the same arguments as the C<set()> method in
+This method takes the same arguments as the C<set()> method in
 C<DateTime.pm>.
 
 =item * set_time_zone
@@ -1143,11 +1147,12 @@ to this class.
 
 =item * base
 
-Returns the C<base> datetime value, or C<undef>.
+Returns the base datetime value, or C<undef> if the object has none.
 
 =item * has_base
 
-Returns 1 if the C<base> value is defined; otherwise it returns 0.
+Returns a boolean value indicating whether or not the object has a
+base datetime set.
 
 =item * is_undef
 
@@ -1155,11 +1160,7 @@ Returns true if the datetime is completely undefined.
 
 =item * set_base
 
-Sets the base C<DateTime.pm> object for the C<DateTime::Incomplete>
-object.
-
-The base object must use the year/month/day system.  Most calendars
-use this system: Gregorian (C<DateTime>), Julian, and others.
+Sets the base datetime object for the C<DateTime::Incomplete> object.
 
 The default value for "base" is C<undef>, which means no validation is
 made on input.
