@@ -2,17 +2,18 @@ package DateTime::Incomplete;
 
 use strict;
 
+use DateTime::Set 0.0901;
 use DateTime::Event::Recurrence;
 use Params::Validate qw( validate );
 
 use vars qw( $VERSION );
 
 my $UNDEF_CHAR;
-my ( @FIELDS, %FIELD_LENGTH );
+my ( @FIELDS, %FIELD_LENGTH, @TIME_FIELDS );
 
 BEGIN
 {
-    $VERSION = '0.00_07';
+    $VERSION = '0.01';
 
     $UNDEF_CHAR = 'x';
 
@@ -22,6 +23,7 @@ BEGIN
                 year => 4, month => 2, day => 2, 
                 hour => 2, minute => 2, second => 2, nanosecond => 9,
                 time_zone => 0, locale => 0 );
+    @TIME_FIELDS = qw( hour minute second nanosecond );
 
     # Generate named accessors
 
@@ -43,6 +45,25 @@ BEGIN
     }
 
     # Generate DateTime read-only functions
+
+    for my $meth ( qw/
+        epoch
+        hires_epoch
+        is_dst
+        utc_rd_values
+        utc_rd_as_seconds
+        local_rd_as_seconds
+        / )
+    {
+        no strict 'refs';
+        *{$meth} = sub 
+                   { 
+                       # to_datetime() dies if there is no "base"
+                       # we get 'undef' if this happens
+                       eval { (shift)->to_datetime( @_ )->$meth() };
+                   };
+    }
+
     for my $meth ( qw/
         week week_year week_number week_of_month
         day_name day_abbr 
@@ -90,11 +111,7 @@ BEGIN
     }
 }
 
-sub _nanosecond {
-    defined $_[0]->nanosecond ? 
-    $_[0]->nanosecond :
-    $UNDEF_CHAR x 9
-}
+*_nanosecond = \&_format_nanosecs;
 
 *mon = \&month;
 *day_of_month = \&day;
@@ -125,6 +142,8 @@ sub _datetime_method
     return $date->$method;
 }
 
+# DATETIME-LIKE METHODS
+
 sub fractional_second {
     $_[0]->_datetime_method( 'fractional_second', 'second', 'nanosecond' );
 }
@@ -149,8 +168,15 @@ sub _from_datetime
 }
 
 sub last_day_of_month {
-    return (shift)->_from_datetime( DateTime->last_day_of_month(@_) );
+    my $self = shift;
+    my %param = @_;
+    my $result = $self->_from_datetime( DateTime->last_day_of_month( @_ ) );
+    for ( @TIME_FIELDS ) {
+        $result->set( $_, undef ) unless defined $param{$_};
+    }
+    return $result;
 }
+
 sub from_epoch {
     return (shift)->_from_datetime( DateTime->from_epoch( @_ ) );
 }
@@ -160,8 +186,15 @@ sub now {
 sub from_object {
     return (shift)->_from_datetime( DateTime->from_object( @_ ) );
 }
+
 sub from_day_of_year {
-    return (shift)->_from_datetime( DateTime->from_day_of_year( @_ ) );
+    my $self = shift;
+    my %param = @_;
+    my $result = $self->_from_datetime( DateTime->from_day_of_year( @_ ) );
+    for ( @TIME_FIELDS ) {
+        $result->set( $_, undef ) unless defined $param{$_};
+    }
+    return $result;
 }
 
 sub today
@@ -174,8 +207,6 @@ sub today
     $param{$_} = $now->$_ for ( keys %fields );
     return $class->new( %param );
 }
-
-# DATETIME-LIKE METHODS
 
 sub new 
 {
@@ -190,6 +221,7 @@ sub new
     }, $class;
     $self->set_base( $base );
     $self->set_locale( $self->{has}{locale} ) if $self->{has}{locale};
+    $self->set_time_zone( $self->{has}{time_zone} ) if $self->{has}{time_zone};
     return $self;
 }
 
@@ -233,6 +265,7 @@ sub set
 	if ( $k eq 'locale' )
 	{
 	    $self->set_locale($v);
+            next;
 	}
 
 	$self->{base}->set( $k => $v ) if $self->{base} && defined $v;
@@ -257,7 +290,7 @@ sub set_time_zone
     my $time_zone = $_[1];
     if ( defined $time_zone )
     {
-        # $time_zone = DateTime::TimeZone->load( $time_zone ) unless ref $time_zone;
+        $time_zone = DateTime::TimeZone->new( name => $time_zone ) unless ref $time_zone;
         $_[0]->{base}->set_time_zone( $time_zone ) if defined $_[0]->{base};
     }
     $_[0]->{has}{time_zone} = $time_zone;
@@ -303,6 +336,7 @@ sub truncate
     my $field;
     my $value;
     my $set = 0;
+
     while ( @fields )
     {
         ( $field, $value ) = ( shift @fields, shift @fields );
@@ -348,84 +382,103 @@ sub iso8601 { join 'T', $_[0]->ymd('-'), $_[0]->hms(':') }
 
 # "strftime"
 
-# Copied from DateTime - we can't import %formats 
-# because it is a local variable.
-#
-# The changes made here may be imported back to DateTime in a future version.
-# Changes are marked with " # <--- change ";
-# _format_nanosecs was rewritten.
-# Added method: _am_pm
-
+# Modified from DateTime::strftime %formats; many changes.
 my %formats =
-    ( 'a' => sub { $_[0]->day_abbr },
-      'A' => sub { $_[0]->day_name },
-      'b' => sub { $_[0]->month_abbr },
-      'B' => sub { $_[0]->month_name },
+    ( 'a' => sub { $_[0]->has_day ? 
+                   $_[0]->day_abbr :
+                   $UNDEF_CHAR x 3 },
+      'A' => sub { $_[0]->has_day ? 
+                   $_[0]->day_name :
+                   $UNDEF_CHAR x 5 },
+      'b' => sub { $_[0]->has_month ? 
+                   $_[0]->month_abbr :
+                   $UNDEF_CHAR x 3 },
+      'B' => sub { $_[0]->has_month ? 
+                   $_[0]->month_name :
+                   $UNDEF_CHAR x 5 },
       'c' => sub { $_[0]->has_locale ?
                    $_[0]->strftime( $_[0]->locale->default_datetime_format ) :
-                   $_[0]->datetime }, # <--- change
-      'C' => sub { int( $_[0]->year / 100 ) },
-      'd' => sub { sprintf( '%02d', $_[0]->day_of_month ) },
+                   $_[0]->datetime }, 
+      'C' => sub { $_[0]->has_year ?
+                   int( $_[0]->year / 100 ) :
+                   $UNDEF_CHAR x 2},
+      'd' => sub { $_[0]->_day },
       'D' => sub { $_[0]->strftime( '%m/%d/%y' ) },
-      'e' => sub { sprintf( '%2d', $_[0]->day_of_month ) },
+      'e' => sub { $_[0]->has_month ? 
+                   sprintf( '%2d', $_[0]->day_of_month ) :
+                   " $UNDEF_CHAR" },
       'F' => sub { $_[0]->ymd('-') },
       'g' => sub { substr( $_[0]->week_year, -2 ) },
       'G' => sub { $_[0]->week_year },
-      'H' => sub { $_[0]->_hour },    # <--- change
-      'I' => sub { sprintf( '%02d', $_[0]->hour_12 ) },
-      'j' => sub { $_[0]->day_of_year },
-      'k' => sub { $_[0]->_hour },    # <--- change
-      'l' => sub { sprintf( '%2d', $_[0]->hour_12 ) },
-      'm' => sub { $_[0]->_month },   # <--- change
-      'M' => sub { $_[0]->_minute },  # <--- change
+      'H' => sub { $_[0]->_hour },   
+      'I' => sub { $_[0]->has_hour ? 
+                   sprintf( '%02d', $_[0]->hour_12 ) :
+                   $UNDEF_CHAR x 2 },
+      'j' => sub { defined $_[0]->day_of_year ? 
+                   $_[0]->day_of_year :
+                   $UNDEF_CHAR x 3 },
+      'k' => sub { $_[0]->_hour },   
+      'l' => sub { $_[0]->has_hour ? 
+                   sprintf( '%2d', $_[0]->hour_12 ) :
+                   " $UNDEF_CHAR" },
+      'm' => sub { $_[0]->_month },  
+      'M' => sub { $_[0]->_minute }, 
       'n' => sub { "\n" }, # should this be OS-sensitive?
-      'N' => sub { (shift)->_format_nanosecs( @_ ) },     # <--- change
-      'p' => sub { $_[0]->_am_pm( $_[0] ) },              # <--- change
-      'P' => sub { lc $_[0]->_am_pm( $_[0] ) },           # <--- change
+      'N' => sub { (shift)->_format_nanosecs( @_ ) },   
+      'p' => sub { $_[0]->_format_am_pm },           
+      'P' => sub { lc $_[0]->_format_am_pm },     
       'r' => sub { $_[0]->strftime( '%I:%M:%S %p' ) },
       'R' => sub { $_[0]->strftime( '%H:%M' ) },
-      's' => sub { $_[0]->_epoch },   # <--- change
-      'S' => sub { $_[0]->_second },  # <--- change
+      's' => sub { $_[0]->_format_epoch }, 
+      'S' => sub { $_[0]->_second }, 
       't' => sub { "\t" },
       'T' => sub { $_[0]->strftime( '%H:%M:%S' ) },
       'u' => sub { $_[0]->day_of_week },
       # algorithm from Date::Format::wkyr
       'U' => sub { my $dow = $_[0]->day_of_week;
+                   return $UNDEF_CHAR x 2 unless defined $dow;
                    $dow = 0 if $dow == 7; # convert to 0-6, Sun-Sat
                    my $doy = $_[0]->day_of_year - 1;
                    return int( ( $doy - $dow + 13 ) / 7 - 1 )
                  },
       'w' => sub { my $dow = $_[0]->day_of_week;
+                   return $UNDEF_CHAR unless defined $dow;
                    return $dow % 7;
                  },
       'W' => sub { my $dow = $_[0]->day_of_week;
+                   return $UNDEF_CHAR x 2 unless defined $dow;
                    my $doy = $_[0]->day_of_year - 1;
                    return int( ( $doy - $dow + 13 ) / 7 - 1 )
                  },
       'x' => sub { $_[0]->has_locale ? 
                    $_[0]->strftime( $_[0]->locale->default_date_format ) :
-                   $_[0]->date }, # <--- change
-      'X' => sub { $_[0]->locale ?
+                   $_[0]->date },
+      'X' => sub { $_[0]->has_locale ?
                    $_[0]->strftime( $_[0]->locale->default_time_format ) :
-                   $_[0]->time }, # <--- change
-      'y' => sub { sprintf( '%02d', substr( $_[0]->year, -2 ) ) },
-      'Y' => sub { $_[0]->_year },    # <--- change
-      'z' => sub { DateTime::TimeZone::offset_as_string( $_[0]->offset ) },
-      'Z' => sub { $_[0]->time_zone_short_name },      # <--- change
+                   $_[0]->time },
+      'y' => sub { $_[0]->has_year ?  
+                   sprintf( '%02d', substr( $_[0]->year, -2 ) ) :
+                   $UNDEF_CHAR x 2 },
+      'Y' => sub { $_[0]->_year },    
+      'z' => sub { defined $_[0]->time_zone ?
+                   DateTime::TimeZone::offset_as_string( $_[0]->offset ) :
+                   $UNDEF_CHAR x 5 },
+      'Z' => sub { defined $_[0]->time_zone ?
+                   $_[0]->time_zone_short_name :
+                   $UNDEF_CHAR x 5 },    
       '%' => sub { '%' },
     );
 
 $formats{h} = $formats{b};
 
-sub epoch {
-    die "not implemented";
+sub _format_epoch {
+    my $epoch;
+    $epoch = $_[0]->epoch;
+    return $UNDEF_CHAR x 6 unless defined $epoch;
+    return $epoch;
 }
 
-sub _epoch {
-    return $UNDEF_CHAR x 6
-}
-
-sub _am_pm { 
+sub _format_am_pm { 
   defined $_[0]->locale ?
   $_[0]->locale->am_pm( $_[0] ) :
   $UNDEF_CHAR x 2
@@ -436,9 +489,11 @@ sub _format_nanosecs
     my $self = shift;
     my $precision = shift || 9;
 
-    # rd_nanosecs might contain a fractional separator
+    return $UNDEF_CHAR x $precision unless defined $self->nanosecond;
+
+    # rd_nanosecs can have a fractional separator
     my ( $ret, $frac ) = split /[.,]/, $self->_nanosecond;
-    $ret = sprintf "09d" => $ret unless length( $ret ) == 9;
+    $ret = sprintf "09d" => $ret;  # unless length( $ret ) == 9;
     $ret .= $frac if $frac;
 
     return substr( $ret, 0, $precision );
@@ -456,7 +511,15 @@ sub strftime
         $f =~ s/
                 %{(\w+)}
                /
-                $self->$1() if $self->can($1);
+                if ( $self->can($1) ) 
+                {
+                    my $tmp = $self->$1();
+                    defined $tmp ?
+                            $tmp :
+                            ( exists $FIELD_LENGTH{$1} ?
+                                   $UNDEF_CHAR x $FIELD_LENGTH{$1} :
+                                   $UNDEF_CHAR x 2 );
+                }
                /sgex;
 
         # regex from Date::Format - thanks Graham!
@@ -530,13 +593,19 @@ sub contains
     die "no datetime" unless defined $dt && 
                              UNIVERSAL::can( $dt, 'utc_rd_values' );
 
+    if ( $self->has_time_zone ) 
+    {
+        $dt = $dt->clone;
+        $dt->set_time_zone( $self->time_zone );
+    }
+
     my ($key, $value);
     while (($key, $value) = each %{$self->{has}} ) {
         next unless defined $value;
         if ( $key eq 'time_zone' ||
              $key eq 'locale' )
         {
-            # TODO! - time_zone and locale are ignored.
+            # time_zone and locale are ignored.
             next;
         }        
         return 0 unless $dt->$key == $value;
@@ -674,9 +743,6 @@ sub closest
     return $dt1 unless defined $dt2;
     return $dt2 unless defined $dt1;
 
-    # warn "self ".$self->datetime." base ".$base->datetime;
-    # warn "dt1 ".$dt1->datetime." dt2 ".$dt2->datetime;
-
     my $delta = $base - $dt1;
     return $dt1 if ( $dt2 - $delta ) >= $base;
     return $dt2;
@@ -730,14 +796,52 @@ sub to_recurrence
 }
 
 
+sub STORABLE_freeze
+{
+    my ( $self, $cloning ) = @_;
+    return if $cloning;
+
+    my @data;
+    for my $key ( keys %FIELD_LENGTH )
+    {
+        next unless defined $self->{has}{$key};
+
+        if ( $key eq 'locale' ) 
+        { 
+            push @data,  "locale:" . $self->{has}{locale}->id; 
+        }
+        elsif ( $key eq 'time_zone' ) 
+        { 
+            push @data, "tz:" . $self->{has}{time_zone}->name; 
+        }
+        else 
+        { 
+            push @data, "$key:" . $self->{has}{$key}; 
+        }
+    }
+    return join( '|', @data ), [$self->base];
+}
+
+sub STORABLE_thaw
+{
+    my ( $self, $cloning, $data, $base ) = @_;
+    my %data = map { split /:/ } split /\|/, $data;
+    my $locale = delete $data{locale};
+    my $tz =     delete $data{tz};
+    $self->{has} = \%data;
+    $self->set_time_zone( $tz );
+    $self->set( locale => $locale );
+    $self->{base} = $base->[0];
+    return $self;
+}
+
 1;
 
 __END__
 
 =head1 NAME
 
-DateTime::Incomplete - The partial date & time thing
-
+DateTime::Incomplete - An incomplete datetime, like January 5
 
 =head1 SYNOPSIS
 
@@ -751,16 +855,39 @@ DateTime::Incomplete - The partial date & time thing
 
 =head1 DESCRIPTION
 
-DateTime::Incomplete is a class for representing partial
-dates and times.
+DateTime::Incomplete is a class for representing partial dates and
+times.
 
-Such values are generated by expressions like '10:30',
-'2003', and 'dec-14'.
+These are actually encountered relatively frequently.  For example, a
+birthday is commonly given as a month and day, without a year.
 
+=head1 ERROR HANDLING
 
-=head1 "DATETIME" METHODS
+Constructor and mutator methods (such as C<new> and C<set>) will die
+if there is an attempt to set the datetime to an invalid value.
 
-=over 4
+Invalid values are detected by setting the appropriate fields of a
+"base" datetime object. See the C<set_base> method.
+
+Accessor methods (such as C<day()>) will return either a value or
+C<undef>, but will never die.
+
+=head1 THE "BASE" DATETIME
+
+A C<DateTime::Incomplete> object can have a "base" C<DateTime.pm>
+object.  This object is used as a default datetime in the
+C<to_datetime()> method, and it also used to validate inputs to the
+C<set()>.
+
+By default, newly created C<DateTime::Incomplete> objects have no
+base.
+
+=head1 DATETIME-LIKE METHODS
+
+Most methods provided by this class are designed to emulate the
+behavior of C<DateTime.pm> whenever possible.
+
+=over
 
 =item * new()
 
@@ -769,123 +896,16 @@ Creates a new incomplete date:
   my $dti = DateTime::Incomplete->new( year => 2003 );
   # 2003-xx-xx
 
-This class method accepts parameters for each date and
-time component: "year", "month", "day", "hour",
-"minute", "second", "nanosecond".  Additionally, it
-accepts a "time_zone", a "locale" parameter,
-and a "base" parameter.
+This class method accepts parameters for each date and time component:
+"year", "month", "day", "hour", "minute", "second", "nanosecond".
+Additionally, it accepts "time_zone", "locale", and "base" parameters.
 
-The "base" parameter is used as a default base datetime 
-in the "to_datetime" method. It is also used for validating
-inputs to the "set" method. 
-There is no default "base".
+Any parameters not given default to C<undef>.
 
-C<new> without parameters creates a completely undefined datetime:
+Calling the C<new()> method without parameters creates a completely
+undefined datetime:
 
   my $dti = DateTime::Incomplete->new();
-
-The parameters can be explicitly undefined:
-
-  my $dti = DateTime::Incomplete->new( year => 2003, day => undef );
-
-
-=item * set
-
-Use this to define or undefine a datetime field:
-
-  $dti->set( month => 12 );
-  $dti->set( day => 24 );
-  $dti->set( day => undef );
-
-It accepts the same arguments as the C<set()> method in
-C<DateTime.pm>.
-
-=item * clone
-
-Creates a new object with the same datetime.
-
-
-=item * set_time_zone
-
-This method accepts either a time zone object or a string that can be
-passed as the "name" parameter to C<< DateTime::TimeZone->new() >>.
-
-Incomplete dates don't know the "local time" concept:
-If the new time zone's offset is different from the 
-previous time zone,
-no local time adjust is made.
-
-
-=item * year, month, day, hour, minute, second, nanosecond
-
-Return the field value, or C<undef>.
-
-These values can also be accessed using the methods:
-mon, day_of_month, mday, min, sec.
-
-=item * has_year, has_month, has_day, has_hour, has_minute, has_second, has_nanosecond, has_time_zone, has_locale
-
-Returns 1 if the value is defined; otherwise it returns 0.
-
-
-=item * time_zone
-
-This returns the C<DateTime::TimeZone> object for the datetime object,
-or C<undef>.
-
-
-=item * locale
-
-This returns the C<DateTime::Locale> object for the datetime object,
-or C<undef>.
-
-
-=item * datetime, ymd, date, hms, time, iso8601, mdy, dmy
-
-These are equivalent to DateTime stringification methods with the same name, 
-except that the undefined fields are replaced by 'xx' or 'xxxx'.
-
-
-=item * strftime( $format, ... )
-
-This method implements functionality similar to the C<strftime()>
-method in C.  However, if given multiple format strings, then it will
-return multiple scalars, one for each format string.
-
-See the C<strftime Specifiers> section in C<DateTime> documentation
-for a list of all possible format specifiers.
-
-Undefined fields are replaced by 'xx' or 'xxxx'.
-
-The specification C<%s> (epoch) always returns C<xxxxxx>.
-
-=item * week week_year week_number week_of_month day_name day_abbr day_of_week wday dow day_of_year doy quarter day_of_quarter doq weekday_of_month jd mjd is_leap_year ce_year era year_with_era last_day_of_month month_name month_abbr hour_1 hour_12 hour_12_0 fractional_second millisecond microsecond offset time_zone_short_name time_zone_long_name
-
-These are equivalent to DateTime methods with the same name,
-except that they will return C<undef> if there is not enough data to compute
-the result.
-
-For example, C<is_leap_year> returns C<undef> if there is no year.
-
-
-=item * is_finite, is_infinite
-
-These methods allow you to distinguish normal datetime objects from
-infinite ones.  Infinite datetime objects are documented in
-L<DateTime::Infinite|DateTime::Infinite>.
-
-Incomplete dates are not "Infinite".
-
-
-=item * truncate( to => ... )
-
-This method allows you to define some of the components in
-the object to their "zero" values.  The "to" parameter is used to
-specify which values to truncate, and it may be one of "year",
-"month", "day", "hour", "minute", or "second".  For example, if
-"month" is specified, then the day becomes 1, and the hour,
-minute, and second all become 0.
-
 
 =item * from_day_of_year( ... )
 
@@ -895,30 +915,28 @@ argument.  Instead, it requires both "year" and "day_of_year".  The
 day of year must be between 1 and 366, and 366 is only allowed for
 leap years.
 
-It creates a C<DateTime::Incomplete> object with all fields defined.
-
+It creates a C<DateTime::Incomplete> object with all date fields
+defined, but with the time fields (hour, minute, etc.) set to undef.
 
 =item * from_object( object => $object, ... )
 
-This class method can be used to construct a new 
-C<DateTime::Incomplete> object from
-any object that implements the C<utc_rd_values()> method.  All
-C<DateTime::Calendar> modules must implement this method in order to
-provide cross-calendar compatibility.  This method accepts a
-"locale" parameter.
+This class method can be used to construct a new
+C<DateTime::Incomplete> object from any object that implements the
+C<utc_rd_values()> method.  All C<DateTime::Calendar> modules must
+implement this method in order to provide cross-calendar
+compatibility.  This method accepts a "locale" parameter.
 
 If the object passed to this method has a C<time_zone()> method, that
 is used to set the time zone.  Otherwise UTC is used.
 
 It creates a C<DateTime::Incomplete> object with all fields defined.
 
-
 =item * from_epoch( ... )
 
-This class method can be used to construct a new 
-C<DateTime::Incomplete> object from
-an epoch time instead of components.  Just as with the C<new()>
-method, it accepts "time_zone" and "locale" parameters.
+This class method can be used to construct a new
+C<DateTime::Incomplete> object from an epoch time instead of
+components.  Just as with the C<new()> method, it accepts "time_zone"
+and "locale" parameters.
 
 If the epoch value is not an integer, the part after the decimal will
 be converted to nanoseconds.  This is done in order to be compatible
@@ -926,193 +944,330 @@ with C<Time::HiRes>.
 
 It creates a C<DateTime::Incomplete> object with all fields defined.
 
-
 =item * now( ... )
 
-This class method is equivalent to C<DateTime->now>.
+This class method is equivalent to C<< DateTime->now >>.
 
-It creates a C<DateTime::Incomplete> object with all fields defined.
-
+It creates a new C<DateTime::Incomplete> object with all fields
+defined.
 
 =item * today( ... )
 
-This class method is equivalent to C<now>, but it leaves
-hour, minute, second and nanosecond undefined.
+This class method is equivalent to C<now()>, but it leaves hour,
+minute, second and nanosecond undefined.
 
+=item * clone
+
+Creates a new object with the same information as the object this
+method is called on.
 
 =back
 
-
-=head1 "DATETIME::INCOMPLETE" METHODS
+=head2 "Get" Methods
 
 =over 4
 
-=item * set_base
+=item * year
 
-  $dti->set_base( $dt );
+=item * month
 
-The "base" parameter is used as a default base datetime 
-in the "to_datetime" method. It is also used for validating
-inputs to the "set" method.
+=item * day
 
-The base object must use the year/month/day system. 
-Most calendars use this system: Gregorian (C<DateTime>),
-Julian, and others.
+=item * hour
 
+=item * minute
+
+=item * second
+
+=item * nanosecond
+
+=item * time_zone
+
+=item * locale
+
+These methods returns the field value for the object, or C<undef>.
+
+These values can also be accessed using the same alias methods
+available in C<DateTime.pm>, such as C<mon()>, C<mday()>, etc.
+
+=item * has_year
+
+=item * has_month
+
+=item * has_day
+
+=item * has_hour
+
+=item * has_minute
+
+=item * has_second
+
+=item * has_nanosecond
+
+=item * has_time_zone
+
+=item * has_locale
+
+Returns a boolean value indicating whether the corresponding value is
+defined.
+
+=item * datetime, ymd, date, hms, time, iso8601, mdy, dmy
+
+These are equivalent to DateTime stringification methods with the same
+name, except that the undefined fields are replaced by 'xx' or 'xxxx'
+as necessary.
+
+=item * epoch
+
+=item * hires_epoch
+
+=item * is_dst
+
+=item * utc_rd_values
+
+=item * utc_rd_as_seconds
+
+=item * local_rd_as_seconds
+
+    my $epoch = $dti->epoch( base => $dt );
+
+These methods are equivalent to the C<DateTime> methods with the same
+name, but they will return C<undef> if no base datetime is defined.
+
+=item * is_finite, is_infinite
+
+Incomplete dates are always "finite".
+
+=item * strftime( $format, ... )
+
+This method implements functionality similar to the C<strftime()>
+method in C.  However, if given multiple format strings, then it will
+return multiple scalars, one for each format string.
+
+See the C<strftime Specifiers> section in C<DateTime.pm> documentation
+for a list of all possible format specifiers.
+
+Undefined fields are replaced by 'xx' or 'xxxx' as appropriate.
+
+The specification C<%s> (epoch) returns C<xxxxxx>, unless the object
+has a base datetime set.
+
+=back
+
+=head3 Computed Values
+
+All other accessors, such as C<day_of_week()>, or C<week_year()> are
+computed from the base values for a datetime.  When these methods are
+called, they return the requested information if there is enough data
+to compute them, otherwise they return C<undef>
+
+=head3 Unimplemented Methods
+
+The following C<DateTime.pm> methods are not implemented in
+C<DateTime::Incomplete>, though some of them may be implemented in
+future versions:
+
+=over 4
+
+=item * add_duration
+
+=item * add
+
+=item * subtract_duration
+
+=item * subtract
+
+=item * subtract_datetime
+
+=item * subtract_datetime_absolute
+
+=item * delta_md
+
+=item * delta_days
+
+=item * delta_ms
+
+=item * compare
+
+=item * compare_ignore_floating
+
+=item * DefaultLanguage
+
+=back
+
+=head2 "Set" Methods
+
+=over 4
+
+=item * set
+
+Use this to set or undefine a datetime field:
+
+  $dti->set( month => 12 );
+  $dti->set( day => 24 );
+  $dti->set( day => undef );
+
+This method the same arguments as the C<set()> method in
+C<DateTime.pm>.
+
+=item * set_time_zone
+
+This method accepts either a time zone object or a string that can be
+passed as the "name" parameter to C<< DateTime::TimeZone->new() >>.
+
+Unlike with C<DateTime.pm>, if the new time zone's offset is different
+from the previous time zone, no local time adjustment is made.
+
+You can remove time zone information by calling this method with the
+value C<undef>.
+
+=item * truncate( to => ... )
+
+This method allows you to reset some of the local time components in
+the object to their "zero" values.  The "to" parameter is used to
+specify which values to truncate, and it may be one of "year",
+"month", "day", "hour", "minute", or "second".  For example, if
+"month" is specified, then the local day becomes 1, and the hour,
+minute, and second all become 0.
+
+Note that the "to" parameter B<cannot be "week">.
+
+=back
+
+=head1 "DATETIME::INCOMPLETE" METHODS
+
+C<DateTime::Incomplete> objects also have a number of methods unique
+to this class.
+
+=over 4
 
 =item * base
 
 Returns the C<base> datetime value, or C<undef>.
 
-
 =item * has_base
 
 Returns 1 if the C<base> value is defined; otherwise it returns 0.
-
 
 =item * is_undef
 
 Returns true if the datetime is completely undefined.
 
+=item * set_base
+
+Sets the base C<DateTime.pm> object for the C<DateTime::Incomplete>
+object.
+
+The base object must use the year/month/day system.  Most calendars
+use this system: Gregorian (C<DateTime>), Julian, and others.
+
+The default value for "base" is C<undef>, which means no validation is
+made on input.
 
 =item * to_datetime
+
+This method takes an optional "base" parameter and returns a
+"complete" datetime.
 
   $dt = $dti->to_datetime( base => DateTime->now );
 
   $dti->set_base( DateTime->now );
   $dt = $dti->to_datetime;
 
-Returns a "complete" datetime.
+The resulting datetime can be either before of after the given base
+datetime. No adjustments are made, besides setting the missing fields.
 
-The resulting datetime is in the same Calendar as C<base>. 
+This method will die if the object has no base datetime set and none
+is given as an argument.
 
-The following example creates a Julian Calendar date, within
-year 1534:
-
-  $dtj = DateTime::Calendar::Julian->new( ... );
-  $dti = DateTime::Incomplete->new( year => 1534 );
-  $dtj2 = $dti->to_datetime( base => $dtj );
- 
-The resulting datetime can be either before of after the
-C<base> datetime. No adjustments are made, besides setting
-the missing fields.
-
-This method may C<die> if it results in a datetime that
-doesn't exist.
-
+This method may also die if it results in a datetime that doesn't
+actually exist, such as February 30, for example.
 
 =item * to_recurrence
 
+This method generates the set of all possible datetimes that fit into
+an incomplete datetime definition.
+
   $dti = DateTime::Incomplete->new( month => 12, day => 24 );
-  $dtset1 = $dti->to_recurrence;   
+  $dtset1 = $dti->to_recurrence;
   # Christmas recurrence, with _seconds_ resolution
 
-  $dti->set( hour => 0, minute => 0, second => 0, nanosecond => 0 );
-  $dtset2 = $dti->to_recurrence;   
+  $dti->truncate( to => 'day' );
+  $dtset2 = $dti->to_recurrence;
   # Christmas recurrence, with days resolution (hour/min/sec = 00:00:00)
 
-This method generates the set of all possible datetimes
-that fit into an incomplete datetime definition.
-
-Those recurrences are DateTime::Set objects:
+Those recurrences are C<DateTime::Set> objects:
 
   $dt_next_xmas = $dti->to_recurrence->next( DateTime->today );
 
-Recurrence generation has only been tested with
-Gregorian dates so far.
-
-Incomplete dates that have the I<year> defined will
-generate finite sets. This kind of sets can take a lot of 
-resources (RAM and CPU). 
-The following datetime would generate the set of I<all seconds> in 2003:
+Incomplete dates that have the year defined will generate finite sets.
+This kind of set can take a lot of resources (RAM and CPU).  The
+following incomplete datetime would generate the set of I<all seconds>
+in 2003:
 
   2003-xx-xxTxx:xx:xx
 
-
 =item * contains
 
-  $bool = $dti->contains( $dt );
-
-Returns a true value if the incomplete datetime range 
-I<contains> a given datetime value.
-
-Note: the incomplete-datetime time-zone value is ignored,
-that is, the value of "local time" is compared.
-This may lead to unexpected results if the time zone field is set.
+Returns a true value if the incomplete datetime range I<contains> a
+given datetime value.
 
 For example:
 
   2003-xx-xx contains 2003-12-24
   2003-xx-xx does not contain 1999-12-14
 
-
 =item * previous / next / closest
 
   $dt2 = $dti->next( $dt );
 
-C<next> returns the first complete date I<after or equal> to the given datetime.
+The C<next()> returns the first complete date I<after or equal> to the
+given datetime.
 
-C<previous> returns the first complete date I<before or equal> to the given datetime.
+The C<previous()> returns the first complete date I<before or equal>
+to the given datetime.
 
-C<closest> returns the closest complete date (previous or next) to the given datetime.
+The C<closest()> returns the closest complete date (previous or next)
+to the given datetime.
 
-All of these methods return C<undef> if there is no
-matching complete datetime.
+All of these methods return C<undef> if there is no matching complete
+datetime.
 
 If no datetime is given, these methods use the "base" datetime.
 
-Note: The definition of C<previous> and C<next> is different from the
-methods in C<DateTime::Set> class.
+Note: The definition of C<previous()> and C<next()> is different from
+the methods of the same name in the C<DateTime::Set> class.
 
-The datetimes are generated with 1 nanosecond precision. The last "time"
-value of a given day is 23:59:59.999999999 (for non leapsecond days).
-
+The datetimes are generated with 1 nanosecond precision. The last
+"time" value of a given day is 23:59:59.999999999 (for non leapsecond
+days).
 
 =back
 
+=head1 SUPPORT
 
-=head1 DIFFERENCES BETWEEN "DATETIME" AND "DATETIME::INCOMPLETE"
-
-These methods are not implemented in C<DateTime::Incomplete>.
-Some may be implemented in next versions:
-
-  epoch
-  hires_epoch
-  is_dst
-  utc_rd_values
-  utc_rd_as_seconds
-  local_rd_as_seconds
-
-  add_duration, add, subtract_duration, subtract, subtract_datetime
-
-  DefaultLanguage
-  compare
-  compare_ignore_floating
-
-There are no "Storable" class hooks.
-
+Support for this module is provided via the datetime@perl.org email
+list.  See http://lists.perl.org/ for more details.
 
 =head1 AUTHORS
 
 Flavio S. Glock <fglock[at]cpan.org>
 
 With
-Ben Bennett <fiji[at]ayup.limey.net>, 
+Ben Bennett <fiji[at]ayup.limey.net>,
 Claus Farber <claus[at]xn--frber-gra.muc.de>,
 Dave Rolsky <autarch[at]urth.org>,
 Eugene Van Der Pijll <pijll[at]gmx.net>,
 and the DateTime team.
 
-
 =head1 COPYRIGHT
 
-Copyright (c) 2003 Flavio S. Glock.  All rights reserved.
-This program is free software; you can redistribute it
-and/or modify it under the same terms as Perl itself.
+Copyright (c) 2003 Flavio S. Glock.  All rights reserved.  This
+program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
 
-The full text of the license can be found in the LICENSE
-file included with this module.
-
+The full text of the license can be found in the LICENSE file included
+with this module.
 
 =head1 SEE ALSO
 

@@ -156,7 +156,7 @@ my $UNDEF2 = $UNDEF_CHAR x 2;
 
     SKIP: {
         skip "This is not an error - this test would take too much resources to complete", 2
-             if 1;
+             if 0;
 
         # no day, no minute
 

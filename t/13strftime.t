@@ -13,13 +13,13 @@ BEGIN
 
 use strict;
 
-use Test::More tests => 123;
+use Test::More tests => 124;
 
 use DateTime::Incomplete;
 use DateTime;
 
-my $DateTime = 'DateTime::Incomplete';
-my $locale = 'en_US';
+my $locale = 'en_US';  #  ?? "Can't locate DateTime/Locale/en_US.pm in @INC"
+$locale = 'undef';
 my $dt;
 my $params;
 
@@ -30,7 +30,8 @@ while (<DATA>)
     if (/^year =>/)
     {
         $params = $_;
-        $dt = eval "DateTime->new( $params, time_zone => 'UTC' )";
+
+        $dt = eval "DateTime::Incomplete->new( $params, time_zone => undef, locale => $locale )";
         next;
     }
     elsif (/^(\w+)/)
@@ -39,9 +40,9 @@ while (<DATA>)
         eval "use DateTime::Locale::$1";
         die $@ if $@;
 
-        Test::More::diag("New locale: $locale\n");
+        # Test::More::diag("New locale: $locale\n");
 
-        $dt = eval "$DateTime->new( $params, time_zone => 'UTC', locale => '$locale' )";
+        $dt = eval "DateTime::Incomplete->new( $params, time_zone => 'UTC', locale => '$locale' )";
         next;
     }
 
@@ -60,7 +61,7 @@ while (<DATA>)
 # test use of strftime with multiple params - in list and scalar
 # context
 {
-    my $dt = $DateTime->new( year => 1800,
+    my $dt = DateTime::Incomplete->new( year => 1800,
                             month => 1,
                             day => 10,
                             time_zone => 'UTC',
@@ -76,7 +77,7 @@ while (<DATA>)
 }
 
 {
-    my $dt = $DateTime->new( year => 2003,
+    my $dt = DateTime::Incomplete->new( year => 2003,
                             hour => 0,
                             minute => 0,
                             locale => 'en',
@@ -126,48 +127,49 @@ while (<DATA>)
 # %Oy	XCIX
 
 __DATA__
-year => 1999, month => 9, day => 7, hour => 13, minute => 2, second => 42, nanosecond => 123456789.123456
-%y	99
-%Y	1999
+year => undef
+%y	xx
+%Y	xxxx
 %%	%
-%a	Tue
-%A	Tuesday
-%b	Sep
-%B	September
-%C	19
-%d	07
-%e	 7
-%D	09/07/99
-%h	Sep
-%H	13
-%I	01
-%j	250
-%k	13
-%l	 1
-%m	09
-%M	02
-%N	123456789
-%3N	123
-%6N	123456
-%10N	1234567891
-%p	PM
-%r	01:02:42 PM
-%R	13:02
-# %s	936709362   -- epoch is not implemented
-%S	42
-%T	13:02:42
-%U	36
-%w	2
-%W	36
-%y	99
-%Y	1999
-%Z	UTC
-%z	+0000
-%{month}	9
-%{year}	1999
-%x	Sep 7, 1999
-%X	1:02:42 PM
-%c	Sep 7, 1999 1:02:42 PM
+%a	xxx
+%A	xxxxx
+%b	xxx
+%B	xxxxx
+%C	xx
+%d	xx
+%e	 x
+%D	xx/xx/xx
+%h	xxx
+%H	xx
+%I	xx
+%j	xxx
+%k	xx
+%l	 x
+%m	xx
+%M	xx
+%N	xxxxxxxxx
+%3N	xxx
+%6N	xxxxxx
+%10N	xxxxxxxxxx
+%p	xx
+%r	xx:xx:xx xx
+%R	xx:xx
+%s	xxxxxx
+%S	xx
+%T	xx:xx:xx
+%U	xx
+%w	x
+%W	xx
+%y	xx
+%Y	xxxx
+%Z	xxxxx
+%z	xxxxx
+%{month}	xx
+%{year}	xxxx
+%x	xxxx-xx-xx
+%X	xx:xx:xx
+%c	xxxx-xx-xxTxx:xx:xx
+year => 1999, month => 9, day => 7, hour => 13, minute => 2, second => 42, nanosecond => 123456789.123456
 de
 %y	99
 %Y	1999

@@ -1,5 +1,15 @@
 Changes file for DateTime::Incomplete
 
+0.01  2003-11-01
+- documentation revision, by Dave Rolsky
+- documented the error handling: mutators die / accesors return undef
+- from_day_of_year does not define "time" by default
+- DateTime methods:
+ epoch hires_epoch is_dst utc_rd_values utc_rd_as_seconds local_rd_as_seconds 
+- "Storable" hooks
+- "contains" takes the time_zone into account
+- fixed "strftime" of incomplete datetimes, epoch
+
 0.00_07  2003-07-25
 - set_time_zone / set_locale test for undef args
 - strftime

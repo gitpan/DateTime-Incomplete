@@ -1,6 +1,17 @@
 TODO file for DateTime::Incomplete
 
-- fix "contains" to use time_zone info.
+- truncate( to => 'week' )
+
+- some accessors could work _without_ a "base".
+- epoch() could be valid for "absolute" incomplete datetimes like:
+   2003
+   2003-06
+   2000-06-15
+   2000-06-15T10
+
+- test Storable hooks
+
+    perl -Ilib -MStorable -MDateTime::Incomplete -MData::Dumper -e '$dt=DateTime->new(year=>1970);$dti=DateTime::Incomplete->new( year => 2003, base=>$dt, time_zone => "America/Chicago" );$freeze = Storable::nfreeze( $dti );print "$freeze\n"; '
 
 - more tests for next/previous/closest with year and nanosecond
 - use $FIELDS[0] instead of 'year'; $FIELDS[-2] instead of nanosecond
@@ -10,11 +21,14 @@ TODO file for DateTime::Incomplete
   mixing string and object time_zones;
   time_zone-only and locale-only DT::I objects.
 
-- DT::Set needs a fix to avoid generating big in-memory sets,
+- FIXED: (experimental)
+  DT::Set needs a fix to avoid generating big in-memory sets,
   when the result of an operation is a finite set.
   (see SKIP in t/02incomplete.t)
 
 IDEAS
+
+* has_date / has_time
 
 * add_datetime
 
@@ -41,8 +55,6 @@ returns a list of names of "defined" fields
 * set_week
 
 $dti->set( week => 10 )
-
-* from_datetime / today / now
 
 * is_incomplete/is_complete
 
