@@ -8,6 +8,7 @@ WriteMakefile( NAME         => 'DateTime::Incomplete',
                ABSTRACT     => 'Incomplete DateTime objects',
 
                PREREQ_PM    => { 'DateTime' => 0,
+				 'DateTime::Event::Recurrence' => 0,
                                  'Test::More'  => 0,
                                },
              );

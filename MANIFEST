@@ -8,4 +8,6 @@ Changes
 t/02incomplete.t
 t/03base.t
 t/04base_overflow.t
+t/05datetime.t
+t/13strftime.t
 

@@ -2,14 +2,13 @@
 
 use strict;
 
-use Test::More tests => 35;
+use Test::More tests => 34;
 use DateTime;
 use DateTime::Incomplete;
 
-use vars qw( $UNDEF_CHAR $UNDEF2 $UNDEF4 );
-$UNDEF_CHAR = $DateTime::Incomplete::UNDEF_CHAR;
-$UNDEF4 = $UNDEF_CHAR x 4;   
-$UNDEF2 = $UNDEF_CHAR x 2;  
+my $UNDEF_CHAR = 'x';
+my $UNDEF4 = $UNDEF_CHAR x 4;
+my $UNDEF2 = $UNDEF_CHAR x 2;
 
 {
     # Tests for new(), set(), datetime()
@@ -42,9 +41,6 @@ $UNDEF2 = $UNDEF_CHAR x 2;
         'new() matches DT->new' );
 
 
-    is( $dti->has( 'year' ) , 1,
-        'has year' );
-
     is( $dti->has_year , 1,
         'has year' );
 
@@ -53,7 +49,7 @@ $UNDEF2 = $UNDEF_CHAR x 2;
     is( $dti->datetime , $str,
         'undef year' );
 
-    is( $dti->has( 'year' ) , 0,
+    is( $dti->has_year , 0,
         'has no year' );
 
     $dti->set( month => undef );
@@ -142,11 +138,6 @@ $UNDEF2 = $UNDEF_CHAR x 2;
 
   # Tests to_recurrence()
 
-  SKIP: 
-  {
-    skip $DateTime::Incomplete::RECURRENCE_MODULE . " is not installed", 16
-         unless $DateTime::Incomplete::CAN_RECURRENCE;
-
     my $set;
 
     # a complete definition yields a DT::Set with one element
@@ -226,7 +217,6 @@ $UNDEF2 = $UNDEF_CHAR x 2;
       $dt->subtract( months => 10 );
       is( $dti_no_day->closest( $dt )->datetime , '2002-12-24T00:59:00',
           'closest xmas '.$dt->datetime.'' );
-    }
 
   # End: Tests to_recurrence()
 

@@ -1,61 +1,181 @@
 package DateTime::Incomplete;
 
 use strict;
-use Params::Validate qw( validate SCALAR BOOLEAN HASHREF OBJECT );
+
+use DateTime::Event::Recurrence;
+use Params::Validate qw( validate );
 
 use vars qw( $VERSION );
-use vars qw( $UNDEF_CHAR $UNDEF2 $UNDEF4 );
-use vars qw( $CAN_RECURRENCE $RECURRENCE_MODULE );
-use vars qw( @FIELDS %FIELD_LENGTH );
+
+my $UNDEF_CHAR;
+my ( @FIELDS, %FIELD_LENGTH );
 
 BEGIN
 {
-    $VERSION = '0.00_05';
+    $VERSION = '0.00_07';
 
     $UNDEF_CHAR = 'x';
-
-    # to_recurrence() method requires a recurrence module.
-    # otherwise, it is not required.
-    $RECURRENCE_MODULE = 'DateTime::Event::Recurrence';
-    $CAN_RECURRENCE = 0;
-    eval "
-        use $RECURRENCE_MODULE;
-        \$CAN_RECURRENCE = 1;
-    ";
 
     @FIELDS = ( year => 0, month => 1, day => 1, 
                 hour => 0, minute => 0, second => 0, nanosecond => 0 );
     %FIELD_LENGTH = ( 
                 year => 4, month => 2, day => 2, 
                 hour => 2, minute => 2, second => 2, nanosecond => 9,
-                time_zone => 3, locale => 3 );
+                time_zone => 0, locale => 0 );
 
-    for ( keys %FIELD_LENGTH )
+    # Generate named accessors
+
+    for my $field ( keys %FIELD_LENGTH )
     {
-      eval " 
+	no strict 'refs';
+	*{$field} = sub { $_[0]->_get($field) };
+	*{"has_$field"} = sub { $_[0]->_has($field) };
 
-        # year() - plain value
-        sub $_ { 
-            \$_[0]->get( '$_' ) 
-        }
+        next if $field eq 'nanosecond';
 
-        # has_year() - boolean
-        sub has_$_ { 
-            \$_[0]->has( '$_' ) 
-        }   
+	my $length = $FIELD_LENGTH{$field};
 
-        # _year() - stringification
-        sub _$_  { 
-            defined \$_[0]->$_ ? 
-            sprintf( \"%0.$FIELD_LENGTH{$_}d\", \$_[0]->$_ ) : 
-            \$UNDEF_CHAR x $FIELD_LENGTH{$_} 
-        } 
-      ";
+	next unless $length;
+
+	*{"_$field"} = sub { defined $_[0]->$field() ?
+			     sprintf( "%0.${length}d", $_[0]->$field() ) :
+			     $UNDEF_CHAR x $length };
+    }
+
+    # Generate DateTime read-only functions
+    for my $meth ( qw/
+        week week_year week_number week_of_month
+        day_name day_abbr 
+        day_of_week wday dow
+        day_of_year doy
+        quarter day_of_quarter doq
+        weekday_of_month
+        jd mjd
+        / )
+    {
+	no strict 'refs';
+	*{$meth} = sub { $_[0]->_datetime_method( $meth, 'year', 'month', 'day' ) };
+    }
+
+    for my $meth ( qw/
+        is_leap_year ce_year era year_with_era
+        / )
+    {
+	no strict 'refs';
+	*{$meth} = sub { $_[0]->_datetime_method( $meth, 'year' ) };
+    }
+
+    for my $meth ( qw/
+        month_name month_abbr
+        / )
+    {
+	no strict 'refs';
+	*{$meth} = sub { $_[0]->_datetime_method( $meth, 'month' ) };
+    }
+
+    for my $meth ( qw/
+        hour_1 hour_12 hour_12_0
+        / )
+    {
+	no strict 'refs';
+	*{$meth} = sub { $_[0]->_datetime_method( $meth, 'hour' ) };
+    }
+
+    for my $meth ( qw/
+        millisecond microsecond
+        / )
+    {
+	no strict 'refs';
+	*{$meth} = sub { $_[0]->_datetime_method( $meth, 'nanosecond' ) };
     }
 }
 
-# DATETIME-LIKE METHODS
+sub _nanosecond {
+    defined $_[0]->nanosecond ? 
+    $_[0]->nanosecond :
+    $UNDEF_CHAR x 9
+}
 
+*mon = \&month;
+*day_of_month = \&day;
+*mday = \&day;
+*min = \&minute;
+*sec = \&second;
+
+# Internal sub to call "DateTime" methods
+sub _datetime_method
+{
+    my ( $self, $method ) = ( shift, shift );
+    my @fields = @_;   # list of required fields
+    my $date;
+    for ( @fields )
+    {
+        return undef unless ( $self->_has($_) )
+    }
+    my %param; 
+
+    # if we don't need 'year', then we can safely set it to whatever.
+    $param{year} = 1970 if ! @fields || $fields[0] ne 'year';
+
+    $param{locale} = $self->locale if $self->has_locale;
+    $param{time_zone} = $self->time_zone if $self->has_time_zone;
+    $param{$_} = $self->$_ for @fields;
+    $date = DateTime->new( %param );
+    
+    return $date->$method;
+}
+
+sub fractional_second {
+    $_[0]->_datetime_method( 'fractional_second', 'second', 'nanosecond' );
+}
+
+sub offset {
+    $_[0]->_datetime_method( 'offset' );
+}
+sub time_zone_short_name {
+    $_[0]->_datetime_method( 'time_zone_short_name' );
+}
+sub time_zone_long_name  {
+    $_[0]->_datetime_method( 'time_zone_long_name' );
+}
+
+sub _from_datetime
+{
+    my $class = shift;
+    my $dt = shift;
+    my %param;
+    $param{$_} = $dt->$_ for ( keys %FIELD_LENGTH );
+    return $class->new( %param );
+}
+
+sub last_day_of_month {
+    return (shift)->_from_datetime( DateTime->last_day_of_month(@_) );
+}
+sub from_epoch {
+    return (shift)->_from_datetime( DateTime->from_epoch( @_ ) );
+}
+sub now {
+    return (shift)->_from_datetime( DateTime->now( @_ ) );
+}
+sub from_object {
+    return (shift)->_from_datetime( DateTime->from_object( @_ ) );
+}
+sub from_day_of_year {
+    return (shift)->_from_datetime( DateTime->from_day_of_year( @_ ) );
+}
+
+sub today
+{
+    my $class = shift;
+    my $now = DateTime->now( @_ );
+    my %param;
+    my %fields = ( %FIELD_LENGTH );
+    delete $fields{$_} for ( qw/ hour minute second nanosecond / );
+    $param{$_} = $now->$_ for ( keys %fields );
+    return $class->new( %param );
+}
+
+# DATETIME-LIKE METHODS
 
 sub new 
 {
@@ -69,6 +189,7 @@ sub new
         has => \%param,
     }, $class;
     $self->set_base( $base );
+    $self->set_locale( $self->{has}{locale} ) if $self->{has}{locale};
     return $self;
 }
 
@@ -97,21 +218,35 @@ sub base
     $_[0]->{base}->clone;
 }
 
-sub set
+sub has_base
 {
-    # parameter checking is done in "base" class.
-    die "set() requires a field name and a value" unless $#_ == 2;
-    $_[0]->{base}->set( $_[1] => $_[2] ) 
-        if defined $_[2] && defined $_[0]->{base};
-    $_[0]->{has}{ $_[1] } = $_[2];
+    return defined $_[0]->{base} ? 1 : 0;
 }
 
-sub get
+sub set
+{
+    my $self = shift;
+    my %p = @_;
+
+    while ( my ( $k, $v ) = each %p )
+    {
+	if ( $k eq 'locale' )
+	{
+	    $self->set_locale($v);
+	}
+
+	$self->{base}->set( $k => $v ) if $self->{base} && defined $v;
+
+	$self->{has}{ $k } = $v;
+    }
+}
+
+sub _get
 {
     $_[0]->{has}{$_[1]};
 }
 
-sub has
+sub _has
 {
     defined $_[0]->{has}{$_[1]} ? 1 : 0;
 }
@@ -119,15 +254,25 @@ sub has
 sub set_time_zone
 {
     die "set_time_zone() requires a time_zone value" unless $#_ == 1;
-    $_[0]->{base}->set_time_zone( $_[1] ) if defined $_[0]->{base};
-    $_[0]->{has}{time_zone} = $_[1];
+    my $time_zone = $_[1];
+    if ( defined $time_zone )
+    {
+        # $time_zone = DateTime::TimeZone->load( $time_zone ) unless ref $time_zone;
+        $_[0]->{base}->set_time_zone( $time_zone ) if defined $_[0]->{base};
+    }
+    $_[0]->{has}{time_zone} = $time_zone;
 }
 
 sub set_locale
 {
     die "set_locale() requires a locale value" unless $#_ == 1;
-    $_[0]->{base}->set_locale( $_[1] ) if defined $_[0]->{base};
-    $_[0]->{has}{locale} = $_[1];
+    my $locale = $_[1];
+    if ( defined $locale )
+    {
+        $locale = DateTime::Locale->load( $locale ) unless ref $locale;
+        $_[0]->{base}->set( locale => $locale ) if defined $_[0]->{base};
+    }
+    $_[0]->{has}{locale} = $locale;
 }
 
 sub clone 
@@ -167,11 +312,8 @@ sub truncate
     return $self;
 }
 
-*mon = \&month;
-*day_of_month = \&day;
-*mday = \&day;
-*min = \&minute;
-*sec = \&second;
+
+# Stringification methods
 
 sub ymd
 {
@@ -203,6 +345,141 @@ sub hms
 sub iso8601 { join 'T', $_[0]->ymd('-'), $_[0]->hms(':') }
 *datetime = \&iso8601;
 
+
+# "strftime"
+
+# Copied from DateTime - we can't import %formats 
+# because it is a local variable.
+#
+# The changes made here may be imported back to DateTime in a future version.
+# Changes are marked with " # <--- change ";
+# _format_nanosecs was rewritten.
+# Added method: _am_pm
+
+my %formats =
+    ( 'a' => sub { $_[0]->day_abbr },
+      'A' => sub { $_[0]->day_name },
+      'b' => sub { $_[0]->month_abbr },
+      'B' => sub { $_[0]->month_name },
+      'c' => sub { $_[0]->has_locale ?
+                   $_[0]->strftime( $_[0]->locale->default_datetime_format ) :
+                   $_[0]->datetime }, # <--- change
+      'C' => sub { int( $_[0]->year / 100 ) },
+      'd' => sub { sprintf( '%02d', $_[0]->day_of_month ) },
+      'D' => sub { $_[0]->strftime( '%m/%d/%y' ) },
+      'e' => sub { sprintf( '%2d', $_[0]->day_of_month ) },
+      'F' => sub { $_[0]->ymd('-') },
+      'g' => sub { substr( $_[0]->week_year, -2 ) },
+      'G' => sub { $_[0]->week_year },
+      'H' => sub { $_[0]->_hour },    # <--- change
+      'I' => sub { sprintf( '%02d', $_[0]->hour_12 ) },
+      'j' => sub { $_[0]->day_of_year },
+      'k' => sub { $_[0]->_hour },    # <--- change
+      'l' => sub { sprintf( '%2d', $_[0]->hour_12 ) },
+      'm' => sub { $_[0]->_month },   # <--- change
+      'M' => sub { $_[0]->_minute },  # <--- change
+      'n' => sub { "\n" }, # should this be OS-sensitive?
+      'N' => sub { (shift)->_format_nanosecs( @_ ) },     # <--- change
+      'p' => sub { $_[0]->_am_pm( $_[0] ) },              # <--- change
+      'P' => sub { lc $_[0]->_am_pm( $_[0] ) },           # <--- change
+      'r' => sub { $_[0]->strftime( '%I:%M:%S %p' ) },
+      'R' => sub { $_[0]->strftime( '%H:%M' ) },
+      's' => sub { $_[0]->_epoch },   # <--- change
+      'S' => sub { $_[0]->_second },  # <--- change
+      't' => sub { "\t" },
+      'T' => sub { $_[0]->strftime( '%H:%M:%S' ) },
+      'u' => sub { $_[0]->day_of_week },
+      # algorithm from Date::Format::wkyr
+      'U' => sub { my $dow = $_[0]->day_of_week;
+                   $dow = 0 if $dow == 7; # convert to 0-6, Sun-Sat
+                   my $doy = $_[0]->day_of_year - 1;
+                   return int( ( $doy - $dow + 13 ) / 7 - 1 )
+                 },
+      'w' => sub { my $dow = $_[0]->day_of_week;
+                   return $dow % 7;
+                 },
+      'W' => sub { my $dow = $_[0]->day_of_week;
+                   my $doy = $_[0]->day_of_year - 1;
+                   return int( ( $doy - $dow + 13 ) / 7 - 1 )
+                 },
+      'x' => sub { $_[0]->has_locale ? 
+                   $_[0]->strftime( $_[0]->locale->default_date_format ) :
+                   $_[0]->date }, # <--- change
+      'X' => sub { $_[0]->locale ?
+                   $_[0]->strftime( $_[0]->locale->default_time_format ) :
+                   $_[0]->time }, # <--- change
+      'y' => sub { sprintf( '%02d', substr( $_[0]->year, -2 ) ) },
+      'Y' => sub { $_[0]->_year },    # <--- change
+      'z' => sub { DateTime::TimeZone::offset_as_string( $_[0]->offset ) },
+      'Z' => sub { $_[0]->time_zone_short_name },      # <--- change
+      '%' => sub { '%' },
+    );
+
+$formats{h} = $formats{b};
+
+sub epoch {
+    die "not implemented";
+}
+
+sub _epoch {
+    return $UNDEF_CHAR x 6
+}
+
+sub _am_pm { 
+  defined $_[0]->locale ?
+  $_[0]->locale->am_pm( $_[0] ) :
+  $UNDEF_CHAR x 2
+}
+
+sub _format_nanosecs
+{
+    my $self = shift;
+    my $precision = shift || 9;
+
+    # rd_nanosecs might contain a fractional separator
+    my ( $ret, $frac ) = split /[.,]/, $self->_nanosecond;
+    $ret = sprintf "09d" => $ret unless length( $ret ) == 9;
+    $ret .= $frac if $frac;
+
+    return substr( $ret, 0, $precision );
+}
+
+sub strftime
+{
+    my $self = shift;
+    # make a copy or caller's scalars get munged
+    my @formats = @_;
+
+    my @r;
+    foreach my $f (@formats)
+    {
+        $f =~ s/
+                %{(\w+)}
+               /
+                $self->$1() if $self->can($1);
+               /sgex;
+
+        # regex from Date::Format - thanks Graham!
+       $f =~ s/
+                %([%a-zA-Z])
+               /
+                $formats{$1} ? $formats{$1}->($self) : $1
+               /sgex;
+
+        # %3N
+        $f =~ s/
+                %(\d+)N
+               /
+                $formats{N}->($self, $1)
+               /sgex;
+
+        return $f unless wantarray;
+
+        push @r, $f;
+    }
+
+    return @r;
+}
 
 # DATETIME::INCOMPLETE METHODS
 
@@ -407,9 +684,6 @@ sub closest
 
 sub to_recurrence
 {
-    die "to_recurrence() is not available because ".
-        $RECURRENCE_MODULE . " is not installed" unless $CAN_RECURRENCE;
-
     my $self = shift;
     my %param;
 
@@ -445,7 +719,7 @@ sub to_recurrence
 
     # for ( keys %param ) { print STDERR " param $_ = @{$param{$_}} \n"; }
 
-    my $r = yearly $RECURRENCE_MODULE ( %param );
+    my $r = DateTime::Event::Recurrence->yearly( %param );
     if ( defined $year ) {
         my $span = DateTime::Span->from_datetimes( 
                        start => DateTime->new( year => $year ),
@@ -523,6 +797,8 @@ Use this to define or undefine a datetime field:
   $dti->set( day => 24 );
   $dti->set( day => undef );
 
+It accepts the same arguments as the C<set()> method in
+C<DateTime.pm>.
 
 =item * clone
 
@@ -535,7 +811,8 @@ This method accepts either a time zone object or a string that can be
 passed as the "name" parameter to C<< DateTime::TimeZone->new() >>.
 
 Incomplete dates don't know the "local time" concept:
-If the new time zone's offset is different from the old time zone,
+If the new time zone's offset is different from the 
+previous time zone,
 no local time adjust is made.
 
 
@@ -556,15 +833,39 @@ Returns 1 if the value is defined; otherwise it returns 0.
 This returns the C<DateTime::TimeZone> object for the datetime object,
 or C<undef>.
 
+
 =item * locale
 
 This returns the C<DateTime::Locale> object for the datetime object,
 or C<undef>.
 
+
 =item * datetime, ymd, date, hms, time, iso8601, mdy, dmy
 
 These are equivalent to DateTime stringification methods with the same name, 
-except that undefined fields are replaced by 'xx' or 'xxxx'.
+except that the undefined fields are replaced by 'xx' or 'xxxx'.
+
+
+=item * strftime( $format, ... )
+
+This method implements functionality similar to the C<strftime()>
+method in C.  However, if given multiple format strings, then it will
+return multiple scalars, one for each format string.
+
+See the C<strftime Specifiers> section in C<DateTime> documentation
+for a list of all possible format specifiers.
+
+Undefined fields are replaced by 'xx' or 'xxxx'.
+
+The specification C<%s> (epoch) always returns C<xxxxxx>.
+
+=item * week week_year week_number week_of_month day_name day_abbr day_of_week wday dow day_of_year doy quarter day_of_quarter doq weekday_of_month jd mjd is_leap_year ce_year era year_with_era last_day_of_month month_name month_abbr hour_1 hour_12 hour_12_0 fractional_second millisecond microsecond offset time_zone_short_name time_zone_long_name
+
+These are equivalent to DateTime methods with the same name,
+except that they will return C<undef> if there is not enough data to compute
+the result.
+
+For example, C<is_leap_year> returns C<undef> if there is no year.
 
 
 =item * is_finite, is_infinite
@@ -586,6 +887,59 @@ specify which values to truncate, and it may be one of "year",
 minute, and second all become 0.
 
 
+=item * from_day_of_year( ... )
+
+This constructor takes the same arguments as can be given to the
+C<new()> method, except that it does not accept a "month" or "day"
+argument.  Instead, it requires both "year" and "day_of_year".  The
+day of year must be between 1 and 366, and 366 is only allowed for
+leap years.
+
+It creates a C<DateTime::Incomplete> object with all fields defined.
+
+
+=item * from_object( object => $object, ... )
+
+This class method can be used to construct a new 
+C<DateTime::Incomplete> object from
+any object that implements the C<utc_rd_values()> method.  All
+C<DateTime::Calendar> modules must implement this method in order to
+provide cross-calendar compatibility.  This method accepts a
+"locale" parameter.
+
+If the object passed to this method has a C<time_zone()> method, that
+is used to set the time zone.  Otherwise UTC is used.
+
+It creates a C<DateTime::Incomplete> object with all fields defined.
+
+
+=item * from_epoch( ... )
+
+This class method can be used to construct a new 
+C<DateTime::Incomplete> object from
+an epoch time instead of components.  Just as with the C<new()>
+method, it accepts "time_zone" and "locale" parameters.
+
+If the epoch value is not an integer, the part after the decimal will
+be converted to nanoseconds.  This is done in order to be compatible
+with C<Time::HiRes>.
+
+It creates a C<DateTime::Incomplete> object with all fields defined.
+
+
+=item * now( ... )
+
+This class method is equivalent to C<DateTime->now>.
+
+It creates a C<DateTime::Incomplete> object with all fields defined.
+
+
+=item * today( ... )
+
+This class method is equivalent to C<now>, but it leaves
+hour, minute, second and nanosecond undefined.
+
+
 =back
 
 
@@ -605,9 +959,15 @@ The base object must use the year/month/day system.
 Most calendars use this system: Gregorian (C<DateTime>),
 Julian, and others.
 
+
 =item * base
 
 Returns the C<base> datetime value, or C<undef>.
+
+
+=item * has_base
+
+Returns 1 if the C<base> value is defined; otherwise it returns 0.
 
 
 =item * is_undef
@@ -644,7 +1004,12 @@ doesn't exist.
 =item * to_recurrence
 
   $dti = DateTime::Incomplete->new( month => 12, day => 24 );
-  $dtset= $dti->to_recurrence;   # Christmas day recurrence
+  $dtset1 = $dti->to_recurrence;   
+  # Christmas recurrence, with _seconds_ resolution
+
+  $dti->set( hour => 0, minute => 0, second => 0, nanosecond => 0 );
+  $dtset2 = $dti->to_recurrence;   
+  # Christmas recurrence, with days resolution (hour/min/sec = 00:00:00)
 
 This method generates the set of all possible datetimes
 that fit into an incomplete datetime definition.
@@ -656,13 +1021,10 @@ Those recurrences are DateTime::Set objects:
 Recurrence generation has only been tested with
 Gregorian dates so far.
 
-This method will die if the
-C<DateTime::Event::Recurrence> package is not installed.
-
 Incomplete dates that have the I<year> defined will
 generate finite sets. This kind of sets can take a lot of 
 resources (RAM and CPU). 
-The following datetime would generate the set of all seconds in 2003:
+The following datetime would generate the set of I<all seconds> in 2003:
 
   2003-xx-xxTxx:xx:xx
 
@@ -705,65 +1067,27 @@ methods in C<DateTime::Set> class.
 The datetimes are generated with 1 nanosecond precision. The last "time"
 value of a given day is 23:59:59.999999999 (for non leapsecond days).
 
-=cut
-
-# (FIXED)
-# Implementation note:
-# These methods are known to fail in certain cases. For example, if you had
-# a DateTime::Infinite date defined with C<month => 2> 
-# and you ask for the previous date before 'march-31'.
-
-=item * get
-
-  $month = $dti->get( 'month' ); 
-
-Returns the datetime field value, or C<undef>. 
-
-You may want to use C<get_month> instead.
-
-
-=item * has
-
-  $isfrac = $dti->has( 'nanosecond' ); 
-
-Returns 1 if the datetime field value is defined; otherwise it returns 0. 
-You may want to use C<has_nanosecond> instead.
-
 
 =back
 
 
 =head1 DIFFERENCES BETWEEN "DATETIME" AND "DATETIME::INCOMPLETE"
 
-These methods are not implemented in C<DateTime::Incomplete>
-(some will be implemented in next versions):
+These methods are not implemented in C<DateTime::Incomplete>.
+Some may be implemented in next versions:
 
-  from_epoch, epoch, hires_epoch
-  now, today
-  from_object
-  last_day_of_month
-  from_day_of_year
-  ce_year, era, year_with_era
-  month_name, month_abbr
-  day_of_week, wday, dow
-  day_name, day_abbr
-  day_of_year, doy
-  quarter, day_of_quarter, doq
-  weekday_of_month
-  hour_1, hour_12, hour_12_0
-  fractional_second, millisecond, microsecond
-  is_leap_year
-  week, week_year, week_number, week_of_month
-  jd, mjd
-  offset, is_dst, time_zone_short_name
-  strftime
-  utc_rd_values, utc_rd_as_seconds, local_rd_as_seconds
+  epoch
+  hires_epoch
+  is_dst
+  utc_rd_values
+  utc_rd_as_seconds
+  local_rd_as_seconds
+
   add_duration, add, subtract_duration, subtract, subtract_datetime
 
-There are no class methods. The following are not implemented:
-
   DefaultLanguage
-  compare, compare_ignore_floating
+  compare
+  compare_ignore_floating
 
 There are no "Storable" class hooks.
 

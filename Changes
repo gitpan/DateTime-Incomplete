@@ -1,5 +1,18 @@
 Changes file for DateTime::Incomplete
 
+0.00_07  2003-07-25
+- set_time_zone / set_locale test for undef args
+- strftime
+- time_zone_long_name
+- today / now / from_epoch / from_object / from_day_of_year
+
+0.00_06  2003-07-25
+- DateTime methods:
+ week week_year week_number week_of_month day_name day_abbr day_of_week wday dow day_of_year doy quarter day_of_quarter doq weekday_of_month jd mjd is_leap_year ce_year era year_with_era last_day_of_month month_name month_abbr hour_1 hour_12 hour_12_0 fractional_second millisecond microsecond offset time_zone_short_name
+- base_class / has_base
+- added example on how to use "truncate" to generate smaller
+  recurrence sets.
+
 0.00_05  2003-07-24
 - next/previous "february" problem fixed.
 - set( day => undef ) would break if there was a base date.
