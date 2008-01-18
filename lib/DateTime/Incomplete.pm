@@ -13,7 +13,7 @@ my ( @FIELDS, %FIELD_LENGTH, @TIME_FIELDS, @FIELDS_SORTED );
 
 BEGIN
 {
-    $VERSION = '0.02';
+    $VERSION = '0.03';
 
     $UNDEF_CHAR = 'x';
 
@@ -166,7 +166,7 @@ sub _from_datetime
     my $class = shift;
     my $dt = shift;
     my %param;
-    $param{$_} = $dt->$_() for ( keys %FIELD_LENGTH );
+    $param{$_} = $dt->$_() for @FIELDS_SORTED;
     return $class->new( %param );
 }
 
@@ -532,9 +532,9 @@ sub _format_epoch {
 }
 
 sub _format_am_pm { 
-  defined $_[0]->locale ?
-  $_[0]->locale->am_pm( $_[0] ) :
-  $UNDEF_CHAR x 2
+    defined $_[0]->locale ?
+    $_[0]->locale->am_pm( $_[0] ) :
+    $UNDEF_CHAR x 2
 }
 
 sub _format_nanosecs
@@ -928,7 +928,7 @@ sub STORABLE_freeze
     return if $cloning;
 
     my @data;
-    for my $key ( keys %FIELD_LENGTH )
+    for my $key ( @FIELDS_SORTED )
     {
         next unless defined $self->{has}{$key};
 
@@ -1003,12 +1003,12 @@ C<undef>, but will never die.
 A C<DateTime::Incomplete> object can have a "base" C<DateTime.pm>
 object.  This object is used as a default datetime in the
 C<to_datetime()> method, and it also used to validate inputs to the
-C<set()>.
+C<set()> method.
 
 The base object must use the year/month/day system.  Most calendars
-use this system: Gregorian (C<DateTime>), Julian, and others.  Note
-that this module has not been well tested with base objects outside of
-the C<DateTime.pm> class.
+use this system including Gregorian (C<DateTime>) and Julian.  Note
+that this module has not been well tested with base objects from
+classes other than C<DateTime.pm> class.
 
 By default, newly created C<DateTime::Incomplete> objects have no
 base.
@@ -1143,7 +1143,7 @@ available in C<DateTime.pm>, such as C<mon()>, C<mday()>, etc.
 
 =item * has_time
 
-Returns a boolean value indicating whether the corresponding value is
+Returns a boolean value indicating whether the corresponding component is
 defined.
 
 C<has_date> tests for year, month, and day.
@@ -1162,8 +1162,7 @@ Returns a boolean value indicating whether all fields in the argument list are d
 
 Returns a list containing the names of the fields that are defined.
 
-The list is ordered by: year, month, day, 
-hour, minute, second, nanosecond, 
+The list order is: year, month, day, hour, minute, second, nanosecond,
 time_zone, locale.
 
 =item * datetime, ymd, date, hms, time, iso8601, mdy, dmy
@@ -1266,7 +1265,7 @@ Use this to set or undefine a datetime field:
   $dti->set( day => undef );
 
 This method takes the same arguments as the C<set()> method in
-C<DateTime.pm>.
+C<DateTime.pm>, but it can accept C<undef> for any value.
 
 =item * set_time_zone
 
@@ -1323,12 +1322,12 @@ Examples:
 
   Can be datetime:
   2003-xx-xxTxx:xx:xx
-  2003-10-xxTxx:xx:xx  
-  2003-10-13Txx:xx:xx 
+  2003-10-xxTxx:xx:xx
+  2003-10-13Txx:xx:xx
 
   Can not be datetime:
   2003-10-13Txx:xx:30
-  xxxx-10-13Txx:xx:30 
+  xxxx-10-13Txx:xx:30
 
 =cut
 
@@ -1367,10 +1366,8 @@ is given as an argument.
 This method may die if it results in a datetime that doesn't
 actually exist, such as February 30, for example.
 
-The fields in the resulting datetime are set in this order:
-locale, time_zone, 
-nanosecond, second, minute, hour, 
-day, month, year. 
+The fields in the resulting datetime are set in this order: locale,
+time_zone, nanosecond, second, minute, hour, day, month, year.
 
 =item * to_recurrence
 
@@ -1396,8 +1393,8 @@ in 2003:
 
   2003-xx-xxTxx:xx:xx
 
-Recurrences are generated with up to 1 second resolution. 
-The C<nanosecond> value is ignored.
+Recurrences are generated with up to 1 second resolution.  The
+C<nanosecond> value is ignored.
 
 =item * to_spanset
 

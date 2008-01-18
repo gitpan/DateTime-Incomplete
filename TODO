@@ -1,5 +1,7 @@
 TODO file for DateTime::Incomplete
 
+- Add new methods from DateTime
+
 - truncate( to => 'week' )
 
 - test Storable hooks
@@ -13,11 +15,6 @@ TODO file for DateTime::Incomplete
 - locale and time_zone tests:
   mixing string and object time_zones;
   time_zone-only and locale-only DT::I objects.
-
-- FIXED: (experimental)
-  DT::Set needs a fix to avoid generating big in-memory sets,
-  when the result of an operation is a finite set.
-  (see SKIP in t/02incomplete.t)
 
 IDEAS
 

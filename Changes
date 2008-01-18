@@ -1,5 +1,8 @@
 Changes file for DateTime::Incomplete
 
+0.03  2008-01-18
+- updated strftime tests, bug reported by cpan testers.
+
 0.02  2004-09-21
 - fixed to_spanset(), bug reported by Joshua Hoblitt.
 
