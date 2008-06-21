@@ -1,5 +1,8 @@
 Changes file for DateTime::Incomplete
 
+0.0301  2008-06-21
+- updated strftime tests, again.
+
 0.03  2008-01-18
 - updated strftime tests, bug reported by cpan testers.
 
