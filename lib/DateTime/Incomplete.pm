@@ -13,7 +13,7 @@ my ( @FIELDS, %FIELD_LENGTH, @TIME_FIELDS, @FIELDS_SORTED );
 
 BEGIN
 {
-    $VERSION = '0.0301';
+    $VERSION = '0.04';
 
     $UNDEF_CHAR = 'x';
 
@@ -626,18 +626,19 @@ sub to_datetime
     {
         $result = DateTime->today;
     }
-    my ($key, $value);
-    for $key ( reverse @FIELDS_SORTED )
+    my @params;
+    for my $key ( @FIELDS_SORTED )
     {
-        $value = $self->{has}{$key};
+        my $value = $self->{has}{$key};
         next unless defined $value;
         if ( $key eq 'time_zone' )
         {
             $result->set_time_zone( $value );
             next;
         }        
-        $result->set( $key => $value );
+        push @params, ( $key => $value );
     }
+    $result->set( @params );
     return $result;
 }
 

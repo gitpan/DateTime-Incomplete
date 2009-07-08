@@ -1,5 +1,10 @@
 Changes file for DateTime::Incomplete
 
+0.04  2009-07-08
+- to_datetime() failed when the current year is a non-leap year and
+  the incomplete date is a leap day,
+  bug reported by Alexandre Masselot.
+
 0.0301  2008-06-21
 - updated strftime tests, again.
 

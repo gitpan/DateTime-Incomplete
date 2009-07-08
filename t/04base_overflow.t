@@ -2,7 +2,7 @@
 
 use strict;
 
-use Test::More tests => 10;
+use Test::More tests => 12;
 use DateTime;
 use DateTime::Incomplete;
 
@@ -28,6 +28,14 @@ use DateTime::Incomplete;
     eval { $dt1 = $dti->previous( $dt1 ) };
     ok( $dt1 && ( $dt1->datetime eq '1970-02-28T23:59:59' ),
             'previous - last day in february' );
+}
+
+# bug reported by Alexandre Masselot
+# 29 feb 2009 -> to_datetime fails...
+{
+    my $dti = DateTime::Incomplete->new( month => 2, day => 29, year=>2000);
+    ok($dti->ymd(), "2000-02-29");
+    ok($dti->to_datetime(), "29 feb 2000");
 }
 
 # Test: require day=30
