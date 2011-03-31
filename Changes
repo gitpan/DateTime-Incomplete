@@ -1,5 +1,8 @@
 Changes file for DateTime::Incomplete
 
+0.05  2011-03-31
+- removed tests for obsolete format "am_pm" - bug #67041
+
 0.04  2009-07-08
 - to_datetime() failed when the current year is a non-leap year and
   the incomplete date is a leap day,
