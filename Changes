@@ -1,5 +1,8 @@
 Changes file for DateTime::Incomplete
 
+0.06  2011-04-01
+- next() and previous() work with time zones - bug #67064
+
 0.05  2011-03-31
 - removed tests for obsolete format "am_pm" - bug #67041
 

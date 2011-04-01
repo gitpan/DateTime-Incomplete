@@ -10,6 +10,7 @@ t/02incomplete.t
 t/03base.t
 t/04base_overflow.t
 t/05datetime.t
+t/06next.t
 t/13strftime.t
 
 META.yml                                Module meta-data (added by MakeMaker)

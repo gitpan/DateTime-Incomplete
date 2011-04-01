@@ -13,7 +13,7 @@ my ( @FIELDS, %FIELD_LENGTH, @TIME_FIELDS, @FIELDS_SORTED );
 
 BEGIN
 {
-    $VERSION = '0.05';
+    $VERSION = '0.06';
 
     $UNDEF_CHAR = 'x';
 
@@ -642,9 +642,7 @@ sub to_datetime
     return $result;
 }
 
-
-sub contains
-{
+sub contains {
     my $self = shift;
     my $dt = shift;
     die "no datetime" unless defined $dt && 
@@ -670,117 +668,131 @@ sub contains
     return 1;
 }
 
-sub next
-{
-    # returns 'next or equal'
-
-    my $self = shift;
-    my $base = shift;
+# _fix_time_zone
+# internal method used by next, previous
+#
+sub _fix_time_zone {
+    my ($self, $base, $code) = @_;
     $base = $self->{base} if defined $self->{base} &&
                                   ! defined $base;
     die "no base datetime" unless defined $base && 
                                   UNIVERSAL::can( $base, 'utc_rd_values' );
-
+    my $base_tz = $base->time_zone;
     my $result = $base->clone;
+    $result->set_time_zone( $self->time_zone )
+        if $self->has_time_zone;
+    $result = $code->($self, $result);
+    return undef 
+        unless defined $result;
+    $result->set_time_zone( $self->time_zone )
+        if $self->has_time_zone;
+    $result->set_time_zone( $base_tz );
+    return $result;
+}
 
-    REDO: for (1..10) 
-    {
-        # warn "next: self ".$self->datetime." base ".$result->datetime;
+sub next
+{
+    # returns 'next or equal'
+    my $self = shift;
+    my $base = shift;
 
-        my @fields = @FIELDS;
-        my ( $field, $overflow, $bigger_field );
-        while ( @fields ) 
-        {
-            ( $field, undef ) = ( shift @fields, shift @fields );
-            if ( defined $self->$field() )
-            {
-                $overflow = ( $self->$field() < $result->$field() );
-                return undef if $overflow && $field eq $FIELDS[0];
+    return $self->_fix_time_zone( $base, 
+        sub {
+            my ($self, $result) = @_;
+            REDO: for (1..10) {
+                # warn "next: self ".$self->datetime." base ".$result->datetime;
 
-                if ( $self->$field() != $result->$field() )
+                my @fields = @FIELDS;
+                my ( $field, $overflow, $bigger_field );
+                while ( @fields ) 
                 {
-                    eval { $result->set( $field => $self->$field() ) }; 
-                    if ( $@ ) 
+                    ( $field, undef ) = ( shift @fields, shift @fields );
+                    if ( defined $self->$field() )
                     {
-                        $result->set( @fields );
-                        eval { $result->set( $field => $self->$field() ) };
-                        if ( $@ )
+                        $overflow = ( $self->$field() < $result->$field() );
+                        return undef if $overflow && $field eq $FIELDS[0];
+
+                        if ( $self->$field() != $result->$field() )
                         {
-                            $overflow = 1;
+                            eval { $result->set( $field => $self->$field() ) }; 
+                            if ( $@ ) 
+                            {
+                                $result->set( @fields );
+                                eval { $result->set( $field => $self->$field() ) };
+                                if ( $@ )
+                                {
+                                    $overflow = 1;
+                                }
+                            }
+
+                            if ( $overflow ) 
+                            {
+                                $result->add( $bigger_field . 's' => 1 );
+                                next REDO; 
+                            }
+                            else
+                            {
+                                $result->set( @fields );
+                            }
                         }
                     }
-
-                    if ( $overflow ) 
-                    {
-                        $result->add( $bigger_field . 's' => 1 );
-                        next REDO; 
-                    }
-                    else
-                    {
-                        $result->set( @fields );
-                    }
+                    $bigger_field = $field;
                 }
+                return $result;
             }
-            $bigger_field = $field;
-        }
-        return $result;
-    }
-    return undef;
+            return undef;
+        } );
 }
 
 sub previous
 {
     # returns 'previous or equal'
-
     my $self = shift;
     my $base = shift;
-    $base = $self->{base} if defined $self->{base} &&
-                                  ! defined $base;
-    die "no base datetime" unless defined $base && 
-                                  UNIVERSAL::can( $base, 'utc_rd_values' );
 
-    my $result = $base->clone;
+    return $self->_fix_time_zone( $base, 
+        sub {
+            my ($self, $result) = @_;
+            # warn "# previous: self ".$self->datetime." base ".$result->datetime." ".$result->time_zone->name;
 
-    # warn "previous: self ".$self->datetime." base ".$result->datetime;
+            my ( $field, $value, $overflow, $bigger_field );
 
-    my ( $field, $value, $overflow, $bigger_field );
-
-    REDO: for (1..10)
-    {
-        my @fields = @FIELDS;
-        while ( @fields ) 
-        {
-            ( $field, $value ) = ( shift @fields, shift @fields );
-            if ( defined $self->$field() )
-            {
-                $overflow = ( $self->$field() > $result->$field() );
-                return undef if $overflow && $field eq $FIELDS[0];
-
-                if ( $self->$field() != $result->$field() )
+            REDO: for (1..10) {
+                my @fields = @FIELDS;
+                while ( @fields ) 
                 {
-                    if ( $overflow )
+                    ( $field, $value ) = ( shift @fields, shift @fields );
+                    if ( defined $self->$field() )
                     {
-                        $result->set( $field => $value, @fields );
-                        $result->subtract( nanoseconds => 1 );
-                        next REDO;
+                        $overflow = ( $self->$field() > $result->$field() );
+                        return undef if $overflow && $field eq $FIELDS[0];
+
+                        if ( $self->$field() != $result->$field() )
+                        {
+                            if ( $overflow )
+                            {
+                                $result->set( $field => $value, @fields );
+                                $result->subtract( nanoseconds => 1 );
+                                next REDO;
+                            }
+                            my $diff = $result->$field() - $self->$field() ;
+                            $diff--;
+                            $result->subtract( $field  . 's' => $diff );
+                            $result->set( @fields );
+                            $result->subtract( nanoseconds => 1 );
+                            if ( $result->$field() != $self->$field() )
+                            {
+                                $result->set( @fields );
+                                $result->subtract( nanoseconds => 1 );
+                            } 
+                        }
                     }
-                    my $diff = $result->$field() - $self->$field() ;
-                    $diff--;
-                    $result->subtract( $field  . 's' => $diff );
-                    $result->set( @fields );
-                    $result->subtract( nanoseconds => 1 );
-                    if ( $result->$field() != $self->$field() )
-                    {
-                        $result->set( @fields );
-                        $result->subtract( nanoseconds => 1 );
-                    } 
+                    $bigger_field = $field;
                 }
+                return $result;
             }
-            $bigger_field = $field;
-        }
-        return $result;
-    }
-    return undef;
+            return undef;
+        } );
 }
 
 sub closest
