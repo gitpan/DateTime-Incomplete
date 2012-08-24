@@ -13,7 +13,7 @@ my ( @FIELDS, %FIELD_LENGTH, @TIME_FIELDS, @FIELDS_SORTED );
 
 BEGIN
 {
-    $VERSION = '0.06';
+    $VERSION = '0.07';
 
     $UNDEF_CHAR = 'x';
 
@@ -562,7 +562,7 @@ sub strftime
     foreach my $f (@formats)
     {
         $f =~ s/
-                %{(\w+)}
+                %\{(\w+)\}
                /
                 if ( $self->can($1) ) 
                 {

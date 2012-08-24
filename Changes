@@ -1,5 +1,8 @@
 Changes file for DateTime::Incomplete
 
+0.07  2012-08-24
+- 5.16 deprecated the use of braces in regexes without escaping them - bug #78914 by garu
+
 0.06  2011-04-01
 - next() and previous() work with time zones - bug #67064
 

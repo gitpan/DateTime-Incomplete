@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               DateTime-Incomplete
-version:            0.06
+version:            0.07
 abstract:           Incomplete DateTime objects
 author:
     - Flavio S. Glock <fglock@pucrs.br>
